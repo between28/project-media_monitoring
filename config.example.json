@@ -1,0 +1,77 @@
+{
+  "topic": {
+    "name": "도심 주택공급 확대 및 신속화 방안",
+    "announcementDate": "2026-01-29",
+    "timezone": "Asia/Seoul"
+  },
+  "collection": {
+    "maxItemsPerFeed": 15,
+    "reportLookbackHours": 36
+  },
+  "dedup": {
+    "fuzzyThreshold": 0.84
+  },
+  "scoring": {
+    "titleWeight": 3,
+    "summaryWeight": 1,
+    "phraseBonus": 3,
+    "highRelevanceThreshold": 6
+  },
+  "ranking": {
+    "majorOutletBoost": 4,
+    "criticalFrameBoost": 2,
+    "opinionBoost": 3
+  },
+  "sources": [
+    {
+      "enabled": true,
+      "source_name": "Google News - 정책 전반",
+      "source_type": "google_news",
+      "category_group": "broad_keyword",
+      "feed_url": "",
+      "keyword": "도심 주택공급 확대",
+      "notes": "기본 활성화"
+    },
+    {
+      "enabled": true,
+      "source_name": "Google News - 1.29 공급대책",
+      "source_type": "google_news",
+      "category_group": "policy_keyword",
+      "feed_url": "",
+      "keyword": "1.29 공급대책",
+      "notes": "기본 활성화"
+    },
+    {
+      "enabled": false,
+      "source_name": "연합뉴스",
+      "source_type": "rss",
+      "category_group": "wire",
+      "feed_url": "",
+      "keyword": "",
+      "notes": "운영 전 실제 RSS URL 확인 후 활성화"
+    }
+  ],
+  "keyword_rules": [
+    {
+      "enabled": true,
+      "bucket": "topic",
+      "keyword": "도심",
+      "weight": 2,
+      "notes": ""
+    },
+    {
+      "enabled": true,
+      "bucket": "phrase",
+      "keyword": "용산 국제업무지구 공급",
+      "weight": 4,
+      "notes": ""
+    },
+    {
+      "enabled": true,
+      "bucket": "frame_critical",
+      "keyword": "우려",
+      "weight": 2,
+      "notes": ""
+    }
+  ]
+}

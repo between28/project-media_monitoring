@@ -34,7 +34,9 @@
 운영 규칙:
 - `source_type = google_news`이고 `feed_url`이 비어 있으면 `keyword`로 Google News RSS URL을 자동 생성합니다.
 - `source_type = rss`이면 `feed_url`에 실제 RSS 주소를 넣어야 합니다.
-- 기본 시트에는 Google News 키워드 질의가 활성화되어 있고, 직접 RSS 행 일부는 placeholder로 비활성 상태입니다.
+- `source_type = sitemap`이면 `feed_url`에 뉴스 sitemap URL을 넣고, 제목/발행시각 중심으로 수집합니다.
+- 실제 운영 설정의 기준은 `config_sources`, `config_keywords` 시트이며 로컬 JSON 설정 파일은 사용하지 않습니다.
+- 기본 시트에는 Google News 키워드 질의가 활성화되어 있고, 직접 RSS 또는 sitemap 행 일부는 상태 확인에 따라 비활성일 수 있습니다.
 
 ## 4. 키워드 설정
 

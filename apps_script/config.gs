@@ -124,7 +124,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '도심 주택공급 확대',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -133,7 +133,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '도심 주택공급 신속화',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -142,7 +142,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '1.29 공급대책',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -151,7 +151,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '국토부 주택공급 확대',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -160,7 +160,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '용산 국제업무지구 공급',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -169,7 +169,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '태릉CC 공급',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -178,7 +178,7 @@ MM.DEFAULT_CONFIG = {
       category_group: 'policy_keyword',
       feed_url: '',
       keyword: '과천 경마장 공급',
-      notes: 'imported from config_sources.json'
+      notes: 'default topic expansion query'
     },
     {
       enabled: true,
@@ -190,22 +190,22 @@ MM.DEFAULT_CONFIG = {
       notes: 'backup query for missing direct RSS'
     },
     {
-      enabled: true,
+      enabled: false,
       source_name: 'Google News - 뉴시스',
       source_type: 'google_news',
       category_group: 'backup_media',
       feed_url: '',
       keyword: '뉴시스 도심 주택공급 확대',
-      notes: 'backup query for missing direct RSS'
+      notes: 'disabled by default after direct section RSS was added on 2026-03-11'
     },
     {
-      enabled: true,
+      enabled: false,
       source_name: 'Google News - 조선일보',
       source_type: 'google_news',
       category_group: 'backup_media',
       feed_url: '',
       keyword: '조선일보 1.29 공급대책',
-      notes: 'backup query for missing direct RSS'
+      notes: 'disabled by default after direct RSS was restored on 2026-03-11'
     },
     {
       enabled: true,
@@ -217,31 +217,31 @@ MM.DEFAULT_CONFIG = {
       notes: 'backup query for missing direct RSS'
     },
     {
-      enabled: true,
+      enabled: false,
       source_name: 'Google News - 서울경제',
       source_type: 'google_news',
       category_group: 'backup_media',
       feed_url: '',
       keyword: '서울경제 국토부 주택공급 확대',
-      notes: 'backup query for missing direct RSS'
+      notes: 'disabled by default after section RSS was added on 2026-03-11'
     },
     {
-      enabled: true,
+      enabled: false,
       source_name: 'Google News - 아시아경제',
       source_type: 'google_news',
       category_group: 'backup_media',
       feed_url: '',
       keyword: '아시아경제 도심 주택공급 신속화',
-      notes: 'backup query for missing direct RSS'
+      notes: 'disabled by default after direct news sitemap was added on 2026-03-11'
     },
     {
-      enabled: true,
+      enabled: false,
       source_name: 'Google News - KBS',
       source_type: 'google_news',
       category_group: 'backup_media',
       feed_url: '',
       keyword: 'KBS 국토부 주택공급 확대',
-      notes: 'backup query for missing direct RSS'
+      notes: 'disabled by default after direct news sitemap was added on 2026-03-11'
     },
     {
       enabled: true,
@@ -288,34 +288,39 @@ MM.DEFAULT_CONFIG = {
       keyword: '건설경제 주택공급 확대',
       notes: 'backup query for missing direct RSS'
     },
-    { enabled: true, source_name: '연합뉴스', source_type: 'rss', category_group: 'wire', feed_url: 'https://www.yna.co.kr/rss/news.xml', keyword: '', notes: 'imported from config_sources.json' },
+    { enabled: true, source_name: '연합뉴스', source_type: 'rss', category_group: 'wire', feed_url: 'https://www.yna.co.kr/rss/news.xml', keyword: '', notes: 'default source list' },
     { enabled: false, source_name: '뉴스1', source_type: 'rss', category_group: 'wire', feed_url: 'https://www.news1.kr/rss', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML, not RSS' },
     { enabled: false, source_name: '뉴시스', source_type: 'rss', category_group: 'wire', feed_url: 'https://www.newsis.com/rss', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML, not RSS' },
-    { enabled: false, source_name: '조선일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.chosun.com/arc/outboundfeeds/rss/', keyword: '', notes: 'default disabled on 2026-03-11: URL returned 404' },
+    { enabled: true, source_name: '뉴시스-정치', source_type: 'rss', category_group: 'wire', feed_url: 'https://newsis.com/RSS/politics.xml', keyword: '', notes: 'updated on 2026-03-11: verified working section RSS feed' },
+    { enabled: true, source_name: '뉴시스-경제', source_type: 'rss', category_group: 'wire', feed_url: 'https://newsis.com/RSS/economy.xml', keyword: '', notes: 'updated on 2026-03-11: verified working section RSS feed' },
+    { enabled: true, source_name: '뉴시스-사회', source_type: 'rss', category_group: 'wire', feed_url: 'https://newsis.com/RSS/society.xml', keyword: '', notes: 'updated on 2026-03-11: verified working section RSS feed' },
+    { enabled: true, source_name: '조선일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml', keyword: '', notes: 'updated on 2026-03-11: verified working direct RSS feed' },
     { enabled: false, source_name: '중앙일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://rss.joins.com/joins_news_list.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML service notice' },
-    { enabled: true, source_name: '동아일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://rss.donga.com/total.xml', keyword: '', notes: 'imported from config_sources.json' },
-    { enabled: true, source_name: '한겨레', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.hani.co.kr/rss/', keyword: '', notes: 'imported from config_sources.json' },
-    { enabled: true, source_name: '경향신문', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.khan.co.kr/rss/rssdata/total_news.xml', keyword: '', notes: 'imported from config_sources.json' },
+    { enabled: true, source_name: '동아일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://rss.donga.com/total.xml', keyword: '', notes: 'default source list' },
+    { enabled: true, source_name: '한겨레', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.hani.co.kr/rss/', keyword: '', notes: 'default source list' },
+    { enabled: true, source_name: '경향신문', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.khan.co.kr/rss/rssdata/total_news.xml', keyword: '', notes: 'default source list' },
     { enabled: true, source_name: '서울신문', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.seoul.co.kr/xml/rss/google_top.xml', keyword: '', notes: 'updated on 2026-03-11: verified working RSS feed' },
-    { enabled: true, source_name: '세계일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.segye.com/Articles/RSSList/segye_recent.xml', keyword: '', notes: 'imported from config_sources.json' },
-    { enabled: true, source_name: '매일경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.mk.co.kr/rss/30000001/', keyword: '', notes: 'imported from config_sources.json' },
-    { enabled: true, source_name: '한국경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.hankyung.com/feed/all-news', keyword: '', notes: 'imported from config_sources.json' },
-    { enabled: false, source_name: '서울경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.sedaily.com/rss/all.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML/404' },
+    { enabled: true, source_name: '세계일보', source_type: 'rss', category_group: 'national_daily', feed_url: 'https://www.segye.com/Articles/RSSList/segye_recent.xml', keyword: '', notes: 'default source list' },
+    { enabled: true, source_name: '매일경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.mk.co.kr/rss/30000001/', keyword: '', notes: 'default source list' },
+    { enabled: true, source_name: '한국경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.hankyung.com/feed/all-news', keyword: '', notes: 'default source list' },
+    { enabled: true, source_name: '서울경제-부동산', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.sedaily.com/rss/realestate', keyword: '', notes: 'updated on 2026-03-11: verified working section RSS feed' },
+    { enabled: true, source_name: '서울경제-경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.sedaily.com/rss/economy', keyword: '', notes: 'updated on 2026-03-11: verified working section RSS feed' },
+    { enabled: true, source_name: '서울경제-정치', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.sedaily.com/rss/politics', keyword: '', notes: 'updated on 2026-03-11: verified working section RSS feed' },
     { enabled: true, source_name: '이데일리', source_type: 'rss', category_group: 'economic_daily', feed_url: 'http://rss.edaily.co.kr/edaily_news.xml', keyword: '', notes: 'updated on 2026-03-11: verified working RSS feed' },
-    { enabled: false, source_name: '아시아경제', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://www.asiae.co.kr/rss/all_news.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML/404' },
-    { enabled: true, source_name: '머니투데이', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://rss.mt.co.kr/mt_news.xml', keyword: '', notes: 'imported from config_sources.json' },
-    { enabled: false, source_name: 'KBS', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://news.kbs.co.kr/rss/rss.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML error page' },
+    { enabled: true, source_name: '아시아경제', source_type: 'sitemap', category_group: 'economic_daily', feed_url: 'https://www.asiae.co.kr/news/sitemap-latest-article', keyword: '', notes: 'updated on 2026-03-11: verified working news sitemap' },
+    { enabled: true, source_name: '머니투데이', source_type: 'rss', category_group: 'economic_daily', feed_url: 'https://rss.mt.co.kr/mt_news.xml', keyword: '', notes: 'default source list' },
+    { enabled: true, source_name: 'KBS', source_type: 'sitemap', category_group: 'broadcast', feed_url: 'https://news.kbs.co.kr/sitemap/recentNewsList.xml', keyword: '', notes: 'updated on 2026-03-11: verified working news sitemap' },
     { enabled: false, source_name: 'MBC', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://imnews.imbc.com/rss/news.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL redirected to HTML error page' },
-    { enabled: true, source_name: 'SBS', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=01', keyword: '', notes: 'imported from config_sources.json' },
+    { enabled: true, source_name: 'SBS', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=01', keyword: '', notes: 'default source list' },
     { enabled: false, source_name: 'YTN', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://www.ytn.co.kr/_rss/news.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML/404' },
-    { enabled: true, source_name: 'JTBC', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://fs.jtbc.co.kr/RSS/newsflash.xml', keyword: '', notes: 'imported from config_sources.json' },
+    { enabled: true, source_name: 'JTBC', source_type: 'rss', category_group: 'broadcast', feed_url: 'https://fs.jtbc.co.kr/RSS/newsflash.xml', keyword: '', notes: 'default source list' },
     { enabled: true, source_name: '노컷뉴스', source_type: 'rss', category_group: 'online_media', feed_url: 'https://rss.nocutnews.co.kr/news/news.xml', keyword: '', notes: 'updated on 2026-03-11: verified working RSS feed' },
     { enabled: true, source_name: '헤럴드경제', source_type: 'rss', category_group: 'online_media', feed_url: 'https://biz.heraldcorp.com/rss/google/newsAll', keyword: '', notes: 'updated on 2026-03-11: verified working RSS feed' },
     { enabled: false, source_name: '파이낸셜뉴스', source_type: 'rss', category_group: 'online_media', feed_url: 'https://www.fnnews.com/rss/fn_realnews.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned HTML/404' },
     { enabled: true, source_name: '오마이뉴스', source_type: 'rss', category_group: 'online_media', feed_url: 'https://rss.ohmynews.com/rss/ohmynews.xml', keyword: '', notes: 'updated on 2026-03-11: verified working RSS feed' },
     { enabled: true, source_name: '프레시안', source_type: 'rss', category_group: 'online_media', feed_url: 'http://www.pressian.com/api/v3/site/rss/news', keyword: '', notes: 'updated on 2026-03-11: verified working RSS feed' },
     { enabled: false, source_name: '데일리안', source_type: 'rss', category_group: 'online_media', feed_url: 'https://www.dailian.co.kr/rss/all.xml', keyword: '', notes: 'default disabled on 2026-03-11: URL returned 404' },
-    { enabled: true, source_name: '국토일보', source_type: 'rss', category_group: 'policy_sector', feed_url: 'http://www.ikld.kr/rss/allArticle.xml', keyword: '', notes: 'imported from config_sources.json' },
+    { enabled: true, source_name: '국토일보', source_type: 'rss', category_group: 'policy_sector', feed_url: 'http://www.ikld.kr/rss/allArticle.xml', keyword: '', notes: 'default source list' },
     { enabled: false, source_name: '건설경제', source_type: 'rss', category_group: 'policy_sector', feed_url: 'https://www.cnews.co.kr/rss/all.xml', keyword: '', notes: 'default disabled on 2026-03-11: DNS failure' }
   ],
   keywordRules: [
@@ -552,7 +557,20 @@ function getKeywordRulesByBuckets_(config, buckets) {
 }
 
 function getSourcePriority_(sourceName, config) {
-  return Number((config.sourcePriority || {})[sourceName] || 0);
+  var priorityMap = config.sourcePriority || {};
+  var exactPriority = Number(priorityMap[sourceName] || 0);
+
+  if (exactPriority) {
+    return exactPriority;
+  }
+
+  // Support sectionized source names like "뉴시스-정치" while leaving "Google News - ..." untouched.
+  if (sourceName && sourceName.indexOf(' - ') === -1 && sourceName.indexOf('-') !== -1) {
+    var baseName = sourceName.split('-')[0].trim();
+    return Number(priorityMap[baseName] || 0);
+  }
+
+  return 0;
 }
 
 function getLookbackStart_(config, now) {

@@ -37,7 +37,7 @@ project-media_monitoring/
 ## MVP 범위
 
 자동화되는 항목:
-- RSS 및 Google News RSS 수집
+- RSS, Google News RSS, 뉴스 sitemap 수집
 - `news_raw` 저장
 - 링크, 제목, 정규화 제목, 유사 제목 기반 중복 판정
 - 정책 키워드 기반 관련도 점수 산정
@@ -67,7 +67,7 @@ project-media_monitoring/
 
 수집 계층:
 - Google News RSS 키워드 질의를 기본값으로 활성화
-- 직접 RSS URL은 `config_sources`에서 추가 가능
+- 직접 RSS 또는 뉴스 sitemap URL은 `config_sources`에서 추가 가능
 
 처리 계층:
 - `news_raw` 전체 로그 보관
@@ -77,6 +77,7 @@ project-media_monitoring/
 ## 현재 한계
 
 - 기사 본문 전체를 읽지 않고 RSS 제목/요약 중심으로 판단합니다.
+- sitemap 소스는 제목과 발행시각은 안정적으로 들어오지만 요약이 비어 있거나 키워드 수준일 수 있습니다.
 - Google News RSS는 링크가 원문 직링크가 아닌 경우가 있습니다.
 - 프레임 분류와 브리핑 문안은 규칙 기반이므로 표현이 다소 보수적입니다.
 - 일부 국내 매체는 RSS 정책이 자주 바뀌므로 초기 설정 검증이 필요합니다.

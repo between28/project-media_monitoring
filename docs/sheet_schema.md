@@ -35,13 +35,13 @@ MVP는 Google Sheets를 운영 저장소로 사용합니다. 기본 시트는 `n
 | --- | --- |
 | `enabled` | `TRUE`면 수집 대상 |
 | `source_name` | 표시 이름 |
-| `source_type` | `rss` 또는 `google_news` |
+| `source_type` | `rss`, `google_news`, `sitemap` |
 | `category_group` | 매체군 구분 |
-| `feed_url` | 직접 RSS URL. Google News 키워드형이면 비워둘 수 있음 |
+| `feed_url` | 직접 RSS 또는 뉴스 sitemap URL. Google News 키워드형이면 비워둘 수 있음 |
 | `keyword` | Google News RSS 질의어 또는 운영 메모용 키워드 |
 | `notes` | 운영 메모 |
 
-기본값은 Google News 키워드 질의를 활성화하고, 일부 직접 RSS 행은 비활성 placeholder로 둡니다.
+기본값은 Google News 키워드 질의를 활성화하고, 일부 직접 RSS/sitemap 행은 상태 검증 결과에 따라 비활성으로 둘 수 있습니다.
 
 ## 3. `config_keywords`
 

@@ -4,10 +4,11 @@ function rankArticles() {
 
   var config = getMonitoringConfig();
   var rawRecords = readSheetRecords_(MM.SHEET_NAMES.RAW);
-  var lookbackStart = getLookbackStart_(config, new Date());
+  var analysisNow = getAnalysisNow_(config);
+  var lookbackStart = getLookbackStart_(config, analysisNow);
   var representativeRecords = rawRecords.filter(isRepresentativeRecord_);
   var lookbackRecords = representativeRecords.filter(function(record) {
-    return isWithinLookback_(record, lookbackStart);
+    return isWithinLookback_(record, lookbackStart, analysisNow);
   });
   var themeStats = buildThemeStats_(lookbackRecords, config);
 
@@ -22,7 +23,7 @@ function rankArticles() {
     var themeStat = themeStats[themeKey] || { count: 1, sourceCount: 1 };
 
     score += getSourcePriority_(record.source_name, config);
-    score += getFreshnessBoost_(record);
+    score += getFreshnessBoost_(record, analysisNow);
 
     if (record.frame_category === '비판 / 우려') {
       score += Number(config.ranking.criticalFrameBoost || 2);
@@ -47,8 +48,8 @@ function rankArticles() {
 
   var processedRecords = rawRecords.filter(function(record) {
     return isRepresentativeRecord_(record) &&
-      Number(record.policy_score || 0) >= Number(config.scoring.highRelevanceThreshold || 6) &&
-      isWithinLookback_(record, lookbackStart);
+      isHighRelevanceRecord_(record, config) &&
+      isWithinLookback_(record, lookbackStart, analysisNow);
   });
 
   processedRecords.sort(compareProcessedRecords_);
@@ -124,14 +125,15 @@ function buildThemeLabelFromKey_(themeKey) {
   return themeKey === '정책 전반' ? '정책 전반' : themeKey + ' 관련 보도';
 }
 
-function getFreshnessBoost_(record) {
+function getFreshnessBoost_(record, now) {
   var timestamp = getRecordTime_(record);
 
   if (!timestamp) {
     return 0;
   }
 
-  var ageHours = (new Date().getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+  var referenceNow = now || new Date();
+  var ageHours = (referenceNow.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
 
   if (ageHours <= 6) {
     return 4;
@@ -178,12 +180,14 @@ function compareProcessedRecords_(left, right) {
   return rightValue - leftValue;
 }
 
-function isWithinLookback_(record, lookbackStart) {
+function isWithinLookback_(record, lookbackStart, analysisNow) {
   var timestamp = getRecordTime_(record);
+  var upperBound = analysisNow || new Date();
 
   if (!timestamp) {
     return true;
   }
 
-  return timestamp.getTime() >= lookbackStart.getTime();
+  return timestamp.getTime() >= lookbackStart.getTime() &&
+    timestamp.getTime() <= upperBound.getTime();
 }

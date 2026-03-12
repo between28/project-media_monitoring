@@ -5,7 +5,8 @@ MM.SHEET_NAMES = {
   PROCESSED: 'news_processed',
   BRIEFING: 'briefing_output',
   SOURCES: 'config_sources',
-  KEYWORDS: 'config_keywords'
+  KEYWORDS: 'config_keywords',
+  RUNTIME: 'config_runtime'
 };
 
 MM.RAW_COLUMNS = [
@@ -24,7 +25,8 @@ MM.RAW_COLUMNS = [
   'frame_category',
   'importance_score',
   'language',
-  'notes'
+  'notes',
+  'body_text'
 ];
 
 MM.PROCESSED_COLUMNS = ['rank'].concat(MM.RAW_COLUMNS);
@@ -56,18 +58,35 @@ MM.KEYWORD_COLUMNS = [
   'notes'
 ];
 
+MM.RUNTIME_COLUMNS = [
+  'key',
+  'value',
+  'notes'
+];
+
 MM.DEFAULT_CONFIG = {
   timezone: 'Asia/Seoul',
   topic: {
     name: '도심 주택공급 확대 및 신속화 방안',
-    announcementDate: '2026-01-29'
+    announcementDate: '2026-01-29',
+    announcementDateTime: '2026-01-29T10:00:00+09:00'
+  },
+  analysis: {
+    referenceTime: ''
   },
   collection: {
-    maxItemsPerFeed: 15,
+    maxItemsPerFeed: 10,
+    maxItemsPerGoogleNewsFeed: 8,
     reportLookbackHours: 36,
     maxProcessedRows: 50,
     maxBriefingArticles: 12,
-    maxThemes: 3
+    maxThemes: 3,
+    rawMinimumKeywordHits: 2,
+    rawCoreKeywords: ['공급', '신속화', '국토부', '용산', '태릉', '과천'],
+    maxBodyFetchCandidates: 12,
+    bodyFetchMinimumPolicyScore: 4,
+    fetchBodyFromGoogleNews: false,
+    bodyTextMaxLength: 4000
   },
   dedup: {
     fuzzyThreshold: 0.84
@@ -75,8 +94,10 @@ MM.DEFAULT_CONFIG = {
   scoring: {
     titleWeight: 3,
     summaryWeight: 1,
+    bodyWeight: 0.75,
     phraseBonus: 3,
-    highRelevanceThreshold: 6
+    highRelevanceThreshold: 8,
+    minimumKeywordHits: 2
   },
   ranking: {
     majorOutletBoost: 4,
@@ -332,7 +353,11 @@ MM.DEFAULT_CONFIG = {
     { enabled: true, bucket: 'topic', keyword: '용산', weight: 3, notes: '' },
     { enabled: true, bucket: 'topic', keyword: '태릉', weight: 3, notes: '' },
     { enabled: true, bucket: 'topic', keyword: '과천', weight: 3, notes: '' },
+    { enabled: true, bucket: 'phrase', keyword: '도심 주택공급 확대 및 신속화 방안', weight: 5, notes: 'always collect' },
+    { enabled: true, bucket: 'phrase', keyword: '주택공급촉진 관계장관회의', weight: 5, notes: 'always collect' },
     { enabled: true, bucket: 'phrase', keyword: '1.29 공급대책', weight: 4, notes: '' },
+    { enabled: true, bucket: 'phrase', keyword: '1.29 대책', weight: 4, notes: 'variant spelling' },
+    { enabled: true, bucket: 'phrase', keyword: '1.29대책', weight: 4, notes: 'variant spelling' },
     { enabled: true, bucket: 'phrase', keyword: '용산 국제업무지구 공급', weight: 4, notes: '' },
     { enabled: true, bucket: 'phrase', keyword: '태릉CC 공급', weight: 4, notes: '' },
     { enabled: true, bucket: 'phrase', keyword: '과천 경마장 공급', weight: 4, notes: '' },
@@ -365,12 +390,21 @@ MM.DEFAULT_CONFIG = {
   ]
 };
 
+MM.DEFAULT_RUNTIME_SETTINGS = [
+  {
+    key: 'analysis_reference_time',
+    value: '2026-02-01T10:00:00+09:00',
+    notes: 'Default set to D+3 from 2026-01-29 10:00 KST. Blank = current execution time.'
+  }
+];
+
 function ensureOperationalSheets() {
   var rawSheet = ensureSheetWithHeaders_(MM.SHEET_NAMES.RAW, MM.RAW_COLUMNS);
   ensureSheetWithHeaders_(MM.SHEET_NAMES.PROCESSED, MM.PROCESSED_COLUMNS);
   ensureSheetWithHeaders_(MM.SHEET_NAMES.BRIEFING, MM.BRIEFING_COLUMNS);
   var sourceSheet = ensureSheetWithHeaders_(MM.SHEET_NAMES.SOURCES, MM.SOURCE_COLUMNS);
   var keywordSheet = ensureSheetWithHeaders_(MM.SHEET_NAMES.KEYWORDS, MM.KEYWORD_COLUMNS);
+  var runtimeSheet = ensureSheetWithHeaders_(MM.SHEET_NAMES.RUNTIME, MM.RUNTIME_COLUMNS);
 
   if (sourceSheet.getLastRow() <= 1) {
     appendSheetRecords_(MM.SHEET_NAMES.SOURCES, MM.SOURCE_COLUMNS, MM.DEFAULT_CONFIG.sources);
@@ -378,6 +412,10 @@ function ensureOperationalSheets() {
 
   if (keywordSheet.getLastRow() <= 1) {
     appendSheetRecords_(MM.SHEET_NAMES.KEYWORDS, MM.KEYWORD_COLUMNS, MM.DEFAULT_CONFIG.keywordRules);
+  }
+
+  if (runtimeSheet.getLastRow() <= 1) {
+    appendSheetRecords_(MM.SHEET_NAMES.RUNTIME, MM.RUNTIME_COLUMNS, MM.DEFAULT_RUNTIME_SETTINGS);
   }
 
   if (rawSheet.getFrozenRows() < 1) {
@@ -398,6 +436,7 @@ function getMonitoringConfig() {
   if (spreadsheet) {
     var sourceSheet = spreadsheet.getSheetByName(MM.SHEET_NAMES.SOURCES);
     var keywordSheet = spreadsheet.getSheetByName(MM.SHEET_NAMES.KEYWORDS);
+    var runtimeSheet = spreadsheet.getSheetByName(MM.SHEET_NAMES.RUNTIME);
 
     if (sourceSheet && sourceSheet.getLastRow() > 1) {
       var sourceRows = readSheetRecords_(MM.SHEET_NAMES.SOURCES);
@@ -417,6 +456,10 @@ function getMonitoringConfig() {
       if (parsedRules.length) {
         config.keywordRules = parsedRules;
       }
+    }
+
+    if (runtimeSheet && runtimeSheet.getLastRow() > 1) {
+      applyRuntimeSettings_(config, readSheetRecords_(MM.SHEET_NAMES.RUNTIME).map(parseRuntimeConfigRow_));
     }
   }
 
@@ -527,6 +570,26 @@ function parseKeywordConfigRow_(row) {
   };
 }
 
+function parseRuntimeConfigRow_(row) {
+  return {
+    key: String(row.key || '').trim(),
+    value: String(row.value || '').trim(),
+    notes: String(row.notes || '').trim()
+  };
+}
+
+function applyRuntimeSettings_(config, rows) {
+  rows.forEach(function(row) {
+    if (!row || !row.key) {
+      return;
+    }
+
+    if (row.key === 'analysis_reference_time') {
+      config.analysis.referenceTime = row.value;
+    }
+  });
+}
+
 function buildGoogleNewsRssUrl_(query) {
   return 'https://news.google.com/rss/search?q=' +
     encodeURIComponent(query) +
@@ -578,6 +641,12 @@ function getLookbackStart_(config, now) {
   return new Date(current.getTime() - Number(config.collection.reportLookbackHours || 36) * 60 * 60 * 1000);
 }
 
+function getAnalysisNow_(config) {
+  var referenceText = collapseWhitespace_(((config || {}).analysis || {}).referenceTime);
+  var parsedReference = parseDateValue_(referenceText);
+  return parsedReference || new Date();
+}
+
 function getRecordTime_(record) {
   var value = record.publish_time || record.collected_time;
   return parseDateValue_(value);
@@ -624,6 +693,11 @@ function parseDateValue_(value) {
 function formatDateTime_(date, timezone) {
   var tz = timezone || getMonitoringConfig().timezone || Session.getScriptTimeZone();
   return Utilities.formatDate(date, tz, "yyyy-MM-dd'T'HH:mm:ssZ");
+}
+
+function formatReadableDateTime_(date, timezone) {
+  var tz = timezone || getMonitoringConfig().timezone || Session.getScriptTimeZone();
+  return Utilities.formatDate(date, tz, 'yyyy-MM-dd HH:mm');
 }
 
 function stripHtml_(html) {

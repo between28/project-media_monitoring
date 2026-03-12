@@ -16,7 +16,7 @@ function classifyFrames() {
 }
 
 function classifyFrameForRecord_(record, config) {
-  var text = normalizeTextLower_(record.title + ' ' + record.summary);
+  var text = normalizeTextLower_(record.title + ' ' + record.summary + ' ' + limitText_(record.body_text, 1500));
   var frameDefinitions = [
     { bucket: 'frame_policy', category: '정책 설명' },
     { bucket: 'frame_positive', category: '긍정 평가' },
@@ -57,7 +57,7 @@ function classifyFrameForRecord_(record, config) {
     }
   });
 
-  if (selectedScore === 0 && Number(record.policy_score || 0) >= Number(config.scoring.highRelevanceThreshold || 6)) {
+  if (selectedScore === 0 && isHighRelevanceRecord_(record, config)) {
     selectedCategory = '정책 설명';
   }
 

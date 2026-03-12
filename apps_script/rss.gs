@@ -3,6 +3,9 @@ function collectRSS() {
   resetConfigCache_();
 
   var config = getMonitoringConfig();
+  var policyRules = getKeywordRulesByBuckets_(config, ['topic', 'phrase']);
+  var analysisNow = getAnalysisNow_(config);
+  var lookbackStart = getLookbackStart_(config, analysisNow);
   var activeSources = (config.sources || []).filter(function(source) {
     return source.enabled;
   });
@@ -17,6 +20,7 @@ function collectRSS() {
     }
 
     try {
+      var maxItemsForSource = getMaxItemsForSource_(source, config);
       var response = UrlFetchApp.fetch(feedUrl, {
         muteHttpExceptions: true,
         followRedirects: true,
@@ -34,9 +38,23 @@ function collectRSS() {
         throw new Error('Non-feed response returned by source URL');
       }
 
-      var items = parseSourceItems_(responseText, source, config.collection.maxItemsPerFeed);
+      var items = parseSourceItems_(responseText, source, maxItemsForSource);
+      var keptCount = 0;
+      var droppedByRelevanceCount = 0;
+      var droppedByDateCount = 0;
 
       items.forEach(function(item) {
+        if (!shouldCollectItem_(item, source, policyRules, config)) {
+          droppedByRelevanceCount += 1;
+          return;
+        }
+
+        if (!shouldKeepItemInCollectionWindow_(item, collectedTime, lookbackStart, analysisNow)) {
+          droppedByDateCount += 1;
+          return;
+        }
+
+        keptCount += 1;
         collectedRecords.push({
           collected_time: collectedTime,
           publish_time: item.publish_time || collectedTime,
@@ -56,9 +74,20 @@ function collectRSS() {
           notes: addNote_(
             addNote_('', source.keyword ? 'source_keyword=' + source.keyword : ''),
             'feed=' + limitText_(feedUrl, 180)
-          )
+          ),
+          body_text: ''
         });
       });
+
+      Logger.log(
+        'Collected ' + keptCount +
+        ' items from ' + source.source_name +
+        ' after prefilter/window; dropped ' +
+        droppedByRelevanceCount +
+        ' by relevance and ' +
+        droppedByDateCount +
+        ' by date.'
+      );
     } catch (error) {
       Logger.log('RSS fetch failed for ' + source.source_name + ': ' + error.message);
     }
@@ -66,6 +95,57 @@ function collectRSS() {
 
   appendSheetRecords_(MM.SHEET_NAMES.RAW, MM.RAW_COLUMNS, collectedRecords);
   return collectedRecords.length;
+}
+
+function getMaxItemsForSource_(source, config) {
+  if (source.source_type === 'google_news') {
+    return Number(config.collection.maxItemsPerGoogleNewsFeed || config.collection.maxItemsPerFeed || 10);
+  }
+
+  return Number(config.collection.maxItemsPerFeed || 10);
+}
+
+function shouldCollectItem_(item, source, policyRules, config) {
+  var previewRecord = {
+    title: item.title,
+    summary: item.summary,
+    source_name: source.source_name
+  };
+  var scoreResult = calculatePolicyScore_(previewRecord, policyRules, config);
+  var hitStats = getPolicyHitStatsFromKeywords_(scoreResult.keywords, config);
+
+  if (hitStats.phraseHits > 0) {
+    return true;
+  }
+
+  if (hitStats.totalHits < Number(config.collection.rawMinimumKeywordHits || 2)) {
+    return false;
+  }
+
+  return hasCollectionCoreKeyword_(scoreResult.keywords, config);
+}
+
+function shouldKeepItemInCollectionWindow_(item, collectedTime, lookbackStart, analysisNow) {
+  var timestamp = parseDateValue_(item.publish_time || collectedTime);
+
+  if (!timestamp) {
+    return false;
+  }
+
+  return timestamp.getTime() >= lookbackStart.getTime() &&
+    timestamp.getTime() <= analysisNow.getTime();
+}
+
+function hasCollectionCoreKeyword_(keywords, config) {
+  var lookup = {};
+
+  (config.collection.rawCoreKeywords || []).forEach(function(keyword) {
+    lookup[normalizeTextLower_(keyword)] = true;
+  });
+
+  return keywords.some(function(keyword) {
+    return lookup[normalizeTextLower_(keyword)] === true;
+  });
 }
 
 function parseSourceItems_(xmlText, source, maxItems) {
@@ -84,16 +164,17 @@ function parseSourceItems_(xmlText, source, maxItems) {
 function parseFeedItemsFromDocument_(document, maxItems) {
   var root = document.getRootElement();
   var items = [];
+  var limit = Number(maxItems || 10);
 
   if (root.getName() === 'rss' || root.getName() === 'RDF') {
     var channel = root.getChild('channel') || root;
-    var rssItems = channel.getChildren('item');
+    var rssItems = channel.getChildren('item').slice(0, limit);
     items = rssItems.map(function(item) {
       return parseRssItem_(item);
     });
   } else if (root.getName() === 'feed') {
     var namespace = root.getNamespace();
-    var atomEntries = root.getChildren('entry', namespace);
+    var atomEntries = root.getChildren('entry', namespace).slice(0, limit);
     items = atomEntries.map(function(entry) {
       return parseAtomEntry_(entry);
     });
@@ -101,7 +182,7 @@ function parseFeedItemsFromDocument_(document, maxItems) {
 
   return items.filter(function(item) {
     return item.title && item.link;
-  }).slice(0, Number(maxItems || 15));
+  }).slice(0, limit);
 }
 
 function parseSitemapItems_(document, source, maxItems, remainingDepth) {
@@ -116,11 +197,11 @@ function parseSitemapItems_(document, source, maxItems, remainingDepth) {
     return [];
   }
 
-  return getChildrenByName_(root, 'url').map(function(item) {
+  return getChildrenByName_(root, 'url').slice(0, Number(maxItems || 10)).map(function(item) {
     return parseSitemapUrl_(item);
   }).filter(function(item) {
     return item.title && item.link;
-  }).slice(0, Number(maxItems || 15));
+  }).slice(0, Number(maxItems || 10));
 }
 
 function parseNestedSitemapItems_(root, source, maxItems, remainingDepth) {

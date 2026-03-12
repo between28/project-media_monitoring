@@ -4,7 +4,7 @@ MVP는 Google Sheets를 운영 저장소로 사용합니다. 기본 시트는 `n
 
 ## 1. `news_raw`
 
-수집된 기사 전체 로그입니다. 중복 기사도 일단 저장한 뒤 후처리 결과를 같은 행에 기록합니다.
+수집 직후 1차 관련도 필터와 분석 기간 필터를 통과한 기사 로그입니다. 중복 기사도 일단 저장한 뒤 후처리 결과를 같은 행에 기록합니다.
 
 | 컬럼 | 설명 |
 | --- | --- |
@@ -24,6 +24,7 @@ MVP는 Google Sheets를 운영 저장소로 사용합니다. 기본 시트는 `n
 | `importance_score` | 중요도 점수 |
 | `language` | `ko`, `en`, `unknown` 등 |
 | `notes` | 쿼리, 중복 메모, 군집 메모 등 보조 정보 |
+| `body_text` | 선택적으로 추가 수집한 기사 본문 텍스트 |
 
 ## 2. `config_sources`
 
@@ -65,7 +66,22 @@ MVP는 Google Sheets를 운영 저장소로 사용합니다. 기본 시트는 `n
 - `negative_signal`
 - `opinion_signal`
 
-## 4. `news_processed`
+## 4. `config_runtime`
+
+운영 시점 설정 시트입니다.
+
+| 컬럼 | 설명 |
+| --- | --- |
+| `key` | 설정 키 |
+| `value` | 설정 값 |
+| `notes` | 운영 메모 |
+
+현재 지원 키:
+- `analysis_reference_time`
+  - 비우면 현재 실행 시점 기준
+  - 값을 넣으면 해당 시점을 기준으로 `lookback`, `freshness`, `briefing_output.generated_time` 계산
+
+## 5. `news_processed`
 
 중복 제거 후 브리핑 후보로 추린 작업 시트입니다. `policy_score`와 `importance_score` 기준으로 정렬하며, 대표 기사만 남깁니다.
 
@@ -77,7 +93,7 @@ MVP는 Google Sheets를 운영 저장소로 사용합니다. 기본 시트는 `n
 
 나머지 컬럼은 `news_raw`와 동일합니다.
 
-## 5. `briefing_output`
+## 6. `briefing_output`
 
 생성된 브리핑 결과를 섹션별 행으로 저장합니다.
 

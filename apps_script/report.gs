@@ -4,7 +4,8 @@ function generateBriefing() {
 
   var config = getMonitoringConfig();
   var candidates = readSheetRecords_(MM.SHEET_NAMES.PROCESSED);
-  var generatedTime = formatDateTime_(new Date(), config.timezone);
+  var analysisNow = getAnalysisNow_(config);
+  var generatedTime = formatDateTime_(analysisNow, config.timezone);
 
   if (!candidates.length) {
     appendSheetRecords_(MM.SHEET_NAMES.BRIEFING, MM.BRIEFING_COLUMNS, [{
@@ -23,7 +24,7 @@ function generateBriefing() {
   var themeGroups = buildThemeGroupsForBriefing_(topCandidates, config);
   var sections = [];
 
-  sections.push(buildBriefingSection_('총평', buildOverallSummary_(candidates, frameCounts, themeGroups, config), topCandidates, frameCounts));
+  sections.push(buildBriefingSection_('총평', buildOverallSummary_(candidates, frameCounts, themeGroups, config, analysisNow), topCandidates, frameCounts));
   sections.push(buildBriefingSection_('주요 보도 내용', buildMainCoverageSection_(themeGroups), topCandidates, frameCounts));
   sections.push(buildBriefingSection_('주요 논점', buildIssueSection_(frameCounts, themeGroups), topCandidates, frameCounts));
   sections.push(buildBriefingSection_('영향력 기사', buildImpactSection_(topCandidates), topCandidates, frameCounts));
@@ -66,15 +67,16 @@ function buildBriefingSection_(sectionName, content, candidates, frameCounts) {
   };
 }
 
-function buildOverallSummary_(candidates, frameCounts, themeGroups, config) {
+function buildOverallSummary_(candidates, frameCounts, themeGroups, config, analysisNow) {
   var sourceCount = getUniqueSourceCount_(candidates);
   var dominantFrames = getDominantFrames_(frameCounts);
   var dominantThemes = themeGroups.slice(0, 2).map(function(group) {
     return group.label;
   });
   var lines = [];
+  var analysisLabel = formatReadableDateTime_(analysisNow || getAnalysisNow_(config), config.timezone);
 
-  lines.push('금일 오전 모니터링 기준, ' + config.topic.name + ' 관련 고관련 기사 ' + candidates.length + '건이 선별되었고 ' + sourceCount + '개 매체에서 유사 서사가 확인되었습니다.');
+  lines.push('기준 시점(' + analysisLabel + ') 기준, ' + config.topic.name + ' 관련 고관련 기사 ' + candidates.length + '건이 선별되었고 ' + sourceCount + '개 매체에서 유사 서사가 확인되었습니다.');
 
   if (dominantFrames.length > 1) {
     lines.push('보도 흐름은 ' + dominantFrames[0] + ' 중심이며 ' + dominantFrames[1] + ' 성격 보도가 함께 관찰되었습니다.');

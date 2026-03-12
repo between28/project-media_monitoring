@@ -18,6 +18,7 @@ project-media_monitoring/
 │  ├─ main.gs
 │  ├─ config.gs
 │  ├─ rss.gs
+│  ├─ body_fetch.gs
 │  ├─ dedup.gs
 │  ├─ scoring.gs
 │  ├─ classify.gs
@@ -38,6 +39,8 @@ project-media_monitoring/
 
 자동화되는 항목:
 - RSS, Google News RSS, 뉴스 sitemap 수집
+- 수집 직후 1차 관련도 필터링
+- 상위 후보 기사 본문 2차 수집
 - `news_raw` 저장
 - 링크, 제목, 정규화 제목, 유사 제목 기반 중복 판정
 - 정책 키워드 기반 관련도 점수 산정
@@ -57,9 +60,12 @@ project-media_monitoring/
 2. `apps_script/*.gs` 파일 내용을 Apps Script 프로젝트에 복사합니다.
 3. `initializeProject()`를 1회 실행해 기본 시트와 설정 시트를 생성합니다.
 4. `resetConfigSourcesSheet()`를 실행해 검증된 기본 RSS/Google News 목록을 `config_sources`에 채웁니다.
-5. `config_sources`, `config_keywords`를 운영 환경에 맞게 수정합니다.
-6. `runDailyMonitoring()`을 수동 실행해 첫 결과를 확인합니다.
-7. `setupDailyTrigger()`를 실행해 일일 자동 트리거를 생성합니다.
+5. `config_sources`, `config_keywords`, `config_runtime`을 운영 환경에 맞게 수정합니다.
+   현재 기본 `analysis_reference_time`은 `2026-02-01T10:00:00+09:00`으로, `2026-01-29 10:00 KST` 기준 `D+3`입니다.
+6. `runCollectionOnly()`로 기사 수집을 먼저 수행합니다.
+7. `runAnalysisAndBriefing()`로 누적된 `news_raw` 기준 브리핑을 생성합니다.
+8. 필요하면 `runDailyMonitoring()`을 통합 실행용으로 사용합니다.
+9. `setupDailyTrigger()`를 실행해 일일 자동 트리거를 생성합니다.
 
 상세 절차는 [docs/operations.md](/c:/Chae/GitHub/project-media_monitoring/docs/operations.md)에 정리되어 있습니다.
 
@@ -70,17 +76,26 @@ project-media_monitoring/
 - 직접 RSS 또는 뉴스 sitemap URL은 `config_sources`에서 추가 가능
 
 처리 계층:
-- `news_raw` 전체 로그 보관
+- `news_raw` 누적 로그 보관
 - 대표 기사만 남긴 뒤 `news_processed`에 정렬 결과 저장
 - `briefing_output`에 섹션별 브리핑 초안 기록
 
+권장 운영 방식:
+- `runCollectionOnly()`: 주기적 누적 수집
+- `runAnalysisAndBriefing()`: 누적된 `news_raw`를 기준으로 재분석 및 브리핑 재작성
+- `runDailyMonitoring()`: 테스트용 통합 실행
+
 ## 현재 한계
 
-- 기사 본문 전체를 읽지 않고 RSS 제목/요약 중심으로 판단합니다.
+- 기사 본문을 전량 수집하지 않고 RSS 제목/요약 중심으로 1차 판단합니다.
+- 일부 상위 후보 기사에 한해 본문 HTML을 추가 수집해 관련도와 프레임 분류를 보강합니다.
+- `news_raw`는 피드 원문 전체가 아니라, 1차 관련도 필터를 통과한 기사 로그입니다.
 - sitemap 소스는 제목과 발행시각은 안정적으로 들어오지만 요약이 비어 있거나 키워드 수준일 수 있습니다.
+- `Google News` 링크는 기본적으로 본문 추가 수집 대상에서 제외합니다.
 - Google News RSS는 링크가 원문 직링크가 아닌 경우가 있습니다.
 - 프레임 분류와 브리핑 문안은 규칙 기반이므로 표현이 다소 보수적입니다.
 - 일부 국내 매체는 RSS 정책이 자주 바뀌므로 초기 설정 검증이 필요합니다.
+- `config_runtime.analysis_reference_time`을 채우면 현재 시점 대신 지정 시점을 기준으로 랭킹/브리핑을 재생성할 수 있습니다.
 
 ## 향후 로드맵
 

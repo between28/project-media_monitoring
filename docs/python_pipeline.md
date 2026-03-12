@@ -42,6 +42,67 @@ python -m python_pipeline brief --analysis-reference-time now --output-file outp
 python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md
 ```
 
+## 보도자료 기반 자동 키워드 모드
+
+`HWPX` 보도자료를 넣으면 제목, 배포일, 핵심 구문, 일반 키워드, Google News 질의를 자동 추출할 수 있습니다.
+
+입력 위치 예시:
+- `sample_inputs/press_releases/`
+
+프로파일 추출:
+
+```bash
+python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases --output-dir outputs/press_release
+```
+
+생성 파일:
+- `outputs/press_release/press_release_profile.json`
+- `outputs/press_release/press_release_config.json`
+- `outputs/press_release/press_release_profile.md`
+
+바로 모니터링 실행:
+
+```bash
+python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md
+```
+
+운영 메모:
+- `HWPX`를 우선 입력으로 사용합니다.
+- 동일 문서의 `PDF`는 보조 비교용으로만 두는 편이 좋습니다.
+- 현재는 `PDF-only` 입력은 지원하지 않습니다.
+
+## 세션 산출물
+
+`--press-release` 모드로 실행하면 `sessions/<session_id>/` 아래에 보도자료별 세션 폴더가 생성됩니다.
+
+주요 산출물:
+- `inputs/`
+  - 원본 `HWPX`와 가능한 경우 같은 이름의 `PDF`를 함께 복사해 보관
+- `config/queries.auto.json`
+  - 보도자료에서 자동 추출된 구문, 키워드, Google News 질의
+- `config/queries.manual.json`
+  - 세션별 수동 보완 파일
+  - `*_add`, `*_disable`, `*_replace`로 자동 질의를 보정
+- `config/config.auto.json`
+  - 자동 추출 결과만 반영한 실행 설정
+- `config/config.effective.json`
+  - 수동 보완까지 반영한 실제 실행 설정
+- `data/session.sqlite3`
+  - 해당 보도자료 세션의 누적 기사 DB
+- `config/press_release_profile.json`
+  - 보도자료에서 추출한 제목, 배포일, 구문/키워드/질의
+- `outputs/briefings/D+0_YYYY-MM-DD.md` ~ `outputs/briefings/D+3_YYYY-MM-DD.md`
+  - 배포일 기준 일자별 언론동향 초안
+- `outputs/references/D+0_YYYY-MM-DD_기사목록.csv`
+- `outputs/references/D+0_YYYY-MM-DD_기사목록.md`
+  - 참고자료용 기사 목록
+
+참고자료 기사표 기본 컬럼:
+- `순번`
+- `언론사`
+- `기사 제목`
+- `보도일시`
+
 ## 주요 파일
 
 - `python_pipeline/defaults.py`

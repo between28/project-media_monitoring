@@ -9,6 +9,7 @@ from copy import deepcopy
 from .config import get_analysis_now, get_keyword_rules_by_buckets, get_lookback_start, get_record_time, get_source_priority
 from .db import fetch_raw_articles, replace_processed_articles, update_raw_articles
 from .utils import (
+    DEFAULT_HTTP_HEADERS,
     add_note,
     collapse_whitespace,
     format_datetime,
@@ -103,17 +104,23 @@ def run_analysis(connection, config: dict, fetch_bodies: bool = True) -> list[di
         replace_processed_articles(connection, format_datetime(get_analysis_now(config), config["timezone"]), [])
         return []
 
-    deduplicate_news(raw_records, config)
-    score_policy_relevance(raw_records, config)
-    if fetch_bodies:
-        fetch_article_bodies(raw_records, config)
-        score_policy_relevance(raw_records, config)
-    classify_frames(raw_records, config)
-    processed_records = rank_articles(raw_records, config)
+    raw_records, processed_records = build_processed_snapshot(raw_records, config, fetch_bodies=fetch_bodies)
 
     update_raw_articles(connection, raw_records)
     replace_processed_articles(connection, format_datetime(get_analysis_now(config), config["timezone"]), processed_records)
     return processed_records
+
+
+def build_processed_snapshot(raw_records: list[dict], config: dict, fetch_bodies: bool = True) -> tuple[list[dict], list[dict]]:
+    snapshot_records = deepcopy(raw_records)
+    deduplicate_news(snapshot_records, config)
+    score_policy_relevance(snapshot_records, config)
+    if fetch_bodies:
+        fetch_article_bodies(snapshot_records, config)
+        score_policy_relevance(snapshot_records, config)
+    classify_frames(snapshot_records, config)
+    processed_records = rank_articles(snapshot_records, config)
+    return snapshot_records, processed_records
 
 
 def deduplicate_news(raw_records: list[dict], config: dict) -> None:
@@ -287,7 +294,7 @@ def is_body_fetch_candidate(record: dict, config: dict, lookback_start, analysis
 def fetch_article_body_text(record: dict, config: dict) -> str:
     request = urllib.request.Request(
         record["link"],
-        headers={"User-Agent": "Mozilla/5.0 (Python Article Body Fetcher)"},
+        headers=DEFAULT_HTTP_HEADERS,
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         data = response.read()

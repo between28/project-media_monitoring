@@ -14,6 +14,9 @@ project-media_monitoring/
 ├─ AGENTS.md
 ├─ TASK.md
 ├─ config.example.json
+├─ sample_inputs/
+│  └─ press_releases/
+│     └─ README.md
 ├─ apps_script/
 │  ├─ main.gs
 │  ├─ config.gs
@@ -39,6 +42,8 @@ project-media_monitoring/
    ├─ collector.py
    ├─ analysis.py
    ├─ briefing.py
+   ├─ press_release.py
+   ├─ session_outputs.py
    └─ utils.py
 ```
 
@@ -101,6 +106,11 @@ Python 중심 운영 방식:
 - `python -m python_pipeline analyze --analysis-reference-time now`
 - `python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md`
 - 또는 한 번에 `python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md`
+- 보도자료 기반 자동 키워드 모드:
+  - `python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases`
+  - `python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md`
+  - 실행 후 `sessions/<session_id>/outputs/` 아래에 `briefings/D+0~D+3_*.md`, `references/*_기사목록.csv`, `references/*_기사목록.md`가 생성됩니다.
+  - 세션별 수동 쿼리 보완 파일은 `sessions/<session_id>/config/queries.manual.json`에 저장됩니다.
 
 기본 트리거 시간:
 - 수집: `00:15`, `03:15`, `05:00`, `12:15`, `18:15`, `21:15`
@@ -123,6 +133,32 @@ python -m python_pipeline collect --analysis-reference-time now
 python -m python_pipeline analyze --analysis-reference-time now
 python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md
 ```
+
+보도자료 기반 자동 키워드 추출:
+
+```bash
+python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases
+python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md
+```
+
+보도자료 세션 산출물:
+- `sessions/<session_id>/config/`
+  - `queries.auto.json`
+  - `queries.manual.json`
+  - `config.auto.json`
+  - `config.effective.json`
+- `sessions/<session_id>/data/`
+  - `session.sqlite3`
+- `sessions/<session_id>/outputs/briefings/`
+  - `D+0_YYYY-MM-DD.md`부터 `D+3_YYYY-MM-DD.md`까지 일자별 브리핑
+- `sessions/<session_id>/outputs/references/`
+  - `D+0_YYYY-MM-DD_기사목록.csv`
+  - `D+0_YYYY-MM-DD_기사목록.md`
+- 참고자료 기사표 기본 컬럼
+  - `순번`
+  - `언론사`
+  - `기사 제목`
+  - `보도일시`
 
 부분 설정 덮어쓰기가 필요하면 루트의 `config.example.json`을 복사해 `--config`로 넘기면 됩니다.
 

@@ -140,11 +140,23 @@ python -m python_pipeline brief --analysis-reference-time now --output-file outp
 python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md
 ```
 
+보도자료 입력 기반 실행:
+
+```bash
+python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases --output-dir outputs/press_release
+python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md
+```
+
 운영 팁:
 - `--analysis-reference-time now`를 주면 실행 시점 기준으로 평가합니다.
 - `--analysis-reference-time 2026-02-01T10:00:00+09:00`처럼 주면 특정 시점 기준 재분석이 가능합니다.
 - `--config config.local.json`으로 일부 설정만 덮어쓸 수 있습니다.
 - `config.example.json`은 Python 경로의 부분 오버라이드 예시로도 사용할 수 있습니다.
+- `--press-release`를 주면 기본 주제 대신 보도자료에서 추출한 키워드와 Google News 질의를 사용합니다.
+- `--press-release` 실행 후에는 `sessions/<session_id>/outputs/briefings/`와 `sessions/<session_id>/outputs/references/` 아래에 일자별 결과물이 생성됩니다.
+- 세션별 수동 쿼리 보완은 `sessions/<session_id>/config/queries.manual.json`에서 관리합니다.
+- 자동 추출본은 `queries.auto.json`, 실제 적용본은 `config.effective.json`으로 별도 보관됩니다.
+- 참고자료 기사표 기본 컬럼은 `순번`, `언론사`, `기사 제목`, `보도일시`입니다.
 
 ## 7. 트리거 설정
 

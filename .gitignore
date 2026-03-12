@@ -209,3 +209,7 @@ __marimo__/
 # Project runtime artifacts
 data/
 outputs/
+sessions/
+sample_inputs/press_releases/*.hwpx
+sample_inputs/press_releases/*.pdf
+!sample_inputs/press_releases/README.md

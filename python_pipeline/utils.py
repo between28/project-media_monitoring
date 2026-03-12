@@ -12,8 +12,19 @@ from zoneinfo import ZoneInfo
 SOURCE_SUFFIX_PATTERN = re.compile(
     r"(?:\||-|–|—|/)\s*(연합뉴스|뉴스1|뉴시스|매일경제|한국경제|서울경제|이데일리|머니투데이)\s*$"
 )
+TITLE_PUBLISHER_PATTERN = re.compile(r"\s(?:\||-|–|—|/)\s*([A-Za-z0-9가-힣·&. ]{2,40})\s*$")
 NORMALIZE_TITLE_PUNCTUATION = re.compile(r"""[!"#$%&'*+,./:;<=>?@\\^_`{|}~·…ㆍ]""")
 TAGGED_NOTE_PATTERN_TEMPLATE = r"(?:^|\s\|\s){tag}=[^|]*"
+DEFAULT_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+GOOGLE_NEWS_PREFIXES = ("Google News - 자동 - ", "Google News - ")
+SOURCE_SECTION_SUFFIXES = {"정치", "경제", "사회", "부동산", "산업", "국제", "문화", "스포츠", "금융", "증권"}
 
 
 def collapse_whitespace(text: str | None) -> str:
@@ -154,6 +165,61 @@ def normalize_title(title: str | None) -> str:
     return text.strip()
 
 
+def normalize_display_source_name(source_name: str | None) -> str:
+    value = collapse_whitespace(source_name)
+    for prefix in GOOGLE_NEWS_PREFIXES:
+        if value.startswith(prefix):
+            return collapse_whitespace(value[len(prefix) :])
+
+    if " - " not in value and "-" in value:
+        base_name, suffix = value.rsplit("-", 1)
+        if collapse_whitespace(suffix) in SOURCE_SECTION_SUFFIXES:
+            return collapse_whitespace(base_name)
+    return value
+
+
+def extract_publisher_name_from_text(text: str | None) -> str:
+    value = collapse_whitespace(text)
+    if not value:
+        return ""
+    match = TITLE_PUBLISHER_PATTERN.search(value)
+    if not match:
+        return ""
+    publisher = collapse_whitespace(match.group(1)).strip(" -|/.,")
+    if len(publisher) < 2:
+        return ""
+    return publisher
+
+
+def infer_display_source_name(source_name: str | None, title: str | None = None, summary: str | None = None) -> str:
+    normalized_source = normalize_display_source_name(source_name)
+    raw_source = collapse_whitespace(source_name)
+
+    if any(raw_source.startswith(prefix) for prefix in GOOGLE_NEWS_PREFIXES):
+        for candidate_text in (title, summary):
+            publisher = extract_publisher_name_from_text(candidate_text)
+            if publisher:
+                return publisher
+    return normalized_source
+
+
+def clean_display_title(title: str | None, source_name: str | None = None, summary: str | None = None) -> str:
+    value = collapse_whitespace(title)
+    raw_source = collapse_whitespace(source_name)
+    if not value:
+        return ""
+
+    if any(raw_source.startswith(prefix) for prefix in GOOGLE_NEWS_PREFIXES):
+        publisher = infer_display_source_name(source_name, title, summary)
+        if publisher:
+            value = re.sub(
+                rf"\s(?:\||-|–|—|/)\s*{re.escape(publisher)}\s*$",
+                "",
+                value,
+            )
+    return collapse_whitespace(value)
+
+
 def title_similarity(left_title: str | None, right_title: str | None) -> float:
     left = normalize_title(left_title)
     right = normalize_title(right_title)
@@ -224,4 +290,3 @@ def now_utc() -> datetime:
 def build_fingerprint(source_name: str, link: str, title: str, publish_time: str) -> str:
     payload = "|".join([source_name or "", normalize_link(link), title or "", publish_time or ""])
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
-

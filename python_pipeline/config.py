@@ -103,6 +103,11 @@ def get_analysis_now(config: dict) -> datetime:
 def get_lookback_start(config: dict, analysis_now: datetime) -> datetime:
     from datetime import timedelta
 
+    absolute_start = collapse_whitespace(config.get("analysis", {}).get("windowStartTime"))
+    parsed_absolute_start = parse_datetime(absolute_start, config.get("timezone", "Asia/Seoul"))
+    if parsed_absolute_start:
+        return parsed_absolute_start
+
     return analysis_now - timedelta(hours=float(config.get("collection", {}).get("reportLookbackHours", 36)))
 
 

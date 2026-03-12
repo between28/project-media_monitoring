@@ -13,6 +13,7 @@ from .analysis import calculate_policy_score, get_policy_hit_stats_from_keywords
 from .config import get_analysis_now, get_keyword_rules_by_buckets, get_lookback_start, resolve_feed_url
 from .db import insert_raw_articles
 from .utils import (
+    DEFAULT_HTTP_HEADERS,
     add_note,
     collapse_whitespace,
     detect_language,
@@ -33,10 +34,7 @@ LOGGER = logging.getLogger(__name__)
 def fetch_url_text(url: str, timeout: int = 20) -> str:
     request = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Python RSS Collector)",
-            "Accept": "application/rss+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.8",
-        },
+        headers=DEFAULT_HTTP_HEADERS,
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         data = response.read()

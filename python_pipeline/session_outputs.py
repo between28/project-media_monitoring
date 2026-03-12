@@ -7,7 +7,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from .analysis import build_processed_snapshot, is_representative_record, is_within_lookback
-from .briefing import build_briefing_package
+from .briefing import build_briefing_overview_counts, build_briefing_package
 from .config import get_record_time
 from .db import fetch_raw_articles
 from .press_release import build_press_session_paths, save_press_session_metadata
@@ -44,7 +44,13 @@ def build_session_daily_outputs(connection, profile: dict, config: dict, session
         snapshot_config["analysis"]["windowStartTime"] = release_time.isoformat()
 
         snapshot_raw, processed_records = build_processed_snapshot(raw_records, snapshot_config, fetch_bodies=False)
-        briefing_rows, briefing_text = build_briefing_package(processed_records, snapshot_config, snapshot_time)
+        overview_counts = build_briefing_overview_counts(snapshot_raw, snapshot_config, snapshot_time)
+        briefing_rows, briefing_text = build_briefing_package(
+            processed_records,
+            snapshot_config,
+            snapshot_time,
+            overview_counts=overview_counts,
+        )
         reference_rows = build_reference_article_rows(snapshot_raw, snapshot_config)
 
         date_label = snapshot_time.astimezone(release_time.tzinfo).strftime("%Y-%m-%d")

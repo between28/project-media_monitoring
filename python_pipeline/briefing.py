@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from .analysis import build_theme_label_from_key, derive_theme_key
-from .config import get_analysis_now
-from .db import fetch_processed_articles, replace_briefing_sections
+from .analysis import build_theme_label_from_key, derive_theme_key, is_representative_record, is_within_lookback
+from .config import get_analysis_now, get_lookback_start
+from .db import fetch_processed_articles, fetch_raw_articles, replace_briefing_sections
 from .utils import clean_display_title, format_datetime, format_readable_datetime, infer_display_source_name, limit_text
 
 
 def generate_briefing(connection, config: dict, output_path: str | None = None) -> str:
     candidates = fetch_processed_articles(connection)
+    raw_records = fetch_raw_articles(connection)
     analysis_now = get_analysis_now(config)
-    rows, full_text = build_briefing_package(candidates, config, analysis_now)
+    overview_counts = build_briefing_overview_counts(raw_records, config, analysis_now)
+    rows, full_text = build_briefing_package(candidates, config, analysis_now, overview_counts=overview_counts)
     replace_briefing_sections(connection, rows)
 
     if output_path:
@@ -18,7 +20,12 @@ def generate_briefing(connection, config: dict, output_path: str | None = None) 
     return full_text
 
 
-def build_briefing_package(candidates: list[dict], config: dict, analysis_now) -> tuple[list[dict], str]:
+def build_briefing_package(
+    candidates: list[dict],
+    config: dict,
+    analysis_now,
+    overview_counts: dict | None = None,
+) -> tuple[list[dict], str]:
     generated_time = format_datetime(analysis_now, config["timezone"])
 
     if not candidates:
@@ -40,7 +47,7 @@ def build_briefing_package(candidates: list[dict], config: dict, analysis_now) -
     theme_groups = build_theme_groups_for_briefing(top_candidates, config)
 
     section_payloads = [
-        ("총평", build_overall_summary(candidates, frame_counts, theme_groups, config, analysis_now)),
+        ("총평", build_overall_summary(candidates, frame_counts, theme_groups, config, analysis_now, overview_counts)),
         ("주요 보도 내용", build_main_coverage_section(theme_groups)),
         ("주요 논점", build_issue_section(frame_counts, theme_groups)),
         ("영향력 기사", build_impact_section(top_candidates)),
@@ -76,15 +83,23 @@ def build_briefing_package(candidates: list[dict], config: dict, analysis_now) -
     return rows, full_text
 
 
-def build_overall_summary(candidates: list[dict], frame_counts: dict, theme_groups: list[dict], config: dict, analysis_now) -> str:
-    source_count = get_unique_source_count(candidates)
+def build_overall_summary(
+    candidates: list[dict],
+    frame_counts: dict,
+    theme_groups: list[dict],
+    config: dict,
+    analysis_now,
+    overview_counts: dict | None = None,
+) -> str:
+    article_count = (overview_counts or {}).get("article_count", len(candidates))
+    source_count = (overview_counts or {}).get("source_count", get_unique_source_count(candidates))
     dominant_frames = get_dominant_frames(frame_counts)
     dominant_themes = [group["label"] for group in theme_groups[:2]]
     lines = []
     analysis_label = format_readable_datetime(analysis_now, config["timezone"])
 
     lines.append(
-        f"기준 시점({analysis_label}) 기준, {config['topic']['name']} 관련 고관련 기사 {len(candidates)}건이 선별되었고 이를 보도한 언론사는 {source_count}곳이었습니다."
+        f"기준 시점({analysis_label}) 기준, {config['topic']['name']} 관련 기사 {article_count}건이 확인되었고 이를 보도한 언론사는 {source_count}곳이었습니다."
     )
     if len(dominant_frames) > 1:
         lines.append(f"보도 흐름은 {dominant_frames[0]} 중심이며 {dominant_frames[1]} 성격 보도가 함께 관찰되었습니다.")
@@ -186,6 +201,27 @@ def count_frames(records: list[dict]) -> dict:
         frame = record.get("frame_category") or "기타"
         counts[frame] = counts.get(frame, 0) + 1
     return counts
+
+
+def build_briefing_overview_counts(raw_records: list[dict], config: dict, analysis_now=None) -> dict:
+    if analysis_now is None:
+        analysis_now = get_analysis_now(config)
+    lookback_start = get_lookback_start(config, analysis_now)
+
+    relevant_records = []
+    for record in raw_records:
+        if not is_representative_record(record):
+            continue
+        if not is_within_lookback(record, lookback_start, analysis_now, config["timezone"]):
+            continue
+        if float(record.get("policy_score", 0) or 0) <= 0:
+            continue
+        relevant_records.append(record)
+
+    return {
+        "article_count": len(relevant_records),
+        "source_count": get_unique_source_count(relevant_records),
+    }
 
 
 def get_dominant_frames(frame_counts: dict) -> list[str]:

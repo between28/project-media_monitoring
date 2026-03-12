@@ -20,6 +20,8 @@
 
 이 MVP는 "Google Sheet에 연결된(bound) Apps Script"를 전제로 합니다. 따라서 별도 Spreadsheet ID 입력 없이 `SpreadsheetApp.getActiveSpreadsheet()`를 사용합니다. 시트에 붙여넣기만 하면 바로 운영할 수 있는 것이 장점입니다.
 
+Python 중심 운영을 원하면 Google Sheets 없이도 `python_pipeline/`만으로 수집, 저장, 재분석, 브리핑 생성이 가능합니다. 이 경우 저장소는 SQLite로 바뀌고, Google Sheets는 선택적 검토 도구가 됩니다.
+
 ## 3. RSS 소스 설정
 
 `config_sources`에서 다음 항목을 관리합니다.
@@ -106,11 +108,55 @@
 - `rankArticles()`
 - `generateBriefing()`
 
-## 7. 매일 05:30 트리거 설정
+## 6-1. Python 수동 실행
 
-1. Apps Script에서 `setupDailyTrigger()`를 실행합니다.
-2. 기존 `runDailyMonitoring` 트리거가 있으면 삭제 후 다시 생성합니다.
-3. 생성되는 트리거는 `매일`, `05시`, `nearMinute(30)` 기준입니다.
+SQLite 초기화:
+
+```bash
+python -m python_pipeline init-db
+```
+
+현재 시점 기준 수집:
+
+```bash
+python -m python_pipeline collect --analysis-reference-time now
+```
+
+누적된 기사 재분석:
+
+```bash
+python -m python_pipeline analyze --analysis-reference-time now
+```
+
+브리핑 파일 생성:
+
+```bash
+python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md
+```
+
+통합 실행:
+
+```bash
+python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md
+```
+
+운영 팁:
+- `--analysis-reference-time now`를 주면 실행 시점 기준으로 평가합니다.
+- `--analysis-reference-time 2026-02-01T10:00:00+09:00`처럼 주면 특정 시점 기준 재분석이 가능합니다.
+- `--config config.local.json`으로 일부 설정만 덮어쓸 수 있습니다.
+- `config.example.json`은 Python 경로의 부분 오버라이드 예시로도 사용할 수 있습니다.
+
+## 7. 트리거 설정
+
+분리 운영 권장:
+
+1. Apps Script에서 `setupCollectionTriggers()`를 실행합니다.
+2. 이어서 `setupBriefingTrigger()`를 실행합니다.
+3. 기존 `runDailyMonitoring` 트리거가 있으면 함께 정리됩니다.
+
+기본 생성 시간:
+- `runCollectionOnly()`: `00:15`, `03:15`, `05:00`, `12:15`, `18:15`, `21:15`
+- `runAnalysisAndBriefing()`: `05:30`
 
 주의:
 - Apps Script 시간 기반 트리거는 정확히 `05:30:00`에 실행된다고 보장되지는 않습니다.
@@ -119,7 +165,8 @@
 권장 운영:
 - 수집은 `runCollectionOnly()`를 하루 여러 차례 실행해 누적합니다.
 - 아침 보고는 `runAnalysisAndBriefing()`를 `05:30` 전후에 실행합니다.
-- 현재 `setupDailyTrigger()`는 통합 실행용입니다. 분리 운영을 할 경우 Apps Script 트리거 화면에서 두 함수를 각각 설정하는 편이 안전합니다.
+- `setupSeparatedTriggers()`는 위 두 트리거를 한 번에 설치하는 편의 함수입니다.
+- `setupDailyTrigger()`는 호환용 래퍼로 `setupSeparatedTriggers()`를 호출합니다.
 
 ## 8. Apps Script 쿼터와 현실적 볼륨
 
@@ -142,9 +189,11 @@ MVP 기준 권장 운영 범위:
 - 직접 RSS URL은 매체 정책 변경에 따라 수시 점검이 필요합니다.
 - 프레임 분류는 규칙 기반이므로 완전하지 않습니다.
 - 브리핑 초안은 최종 배포본이 아니라 검토용 초안입니다.
+- Python 파이프라인도 기본적으로 Apps Script와 같은 규칙을 따르므로 고급 NLP나 완전한 기사 본문 파싱을 제공하지는 않습니다.
 
 ## 10. 운영 팁
 
 - `news_processed` 상위 기사만 보지 말고 `news_raw`의 `duplicate_flag`, `policy_score`, `frame_category`를 함께 확인합니다.
 - 특정 매체가 자주 누락되면 `config_sources`에 직접 RSS를 추가합니다.
 - 정책 주제가 바뀌면 `config_keywords`만 먼저 교체해도 기본 구조는 재사용할 수 있습니다.
+- Python 중심 운영에서는 `data/media_monitoring.sqlite3`를 정기 백업하면 과거 시점 재분석이 쉬워집니다.

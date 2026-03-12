@@ -28,12 +28,21 @@ project-media_monitoring/
 │  ├─ architecture.md
 │  ├─ sheet_schema.md
 │  ├─ briefing_template.md
+│  ├─ python_pipeline.md
 │  └─ operations.md
-└─ future_python/
-   └─ placeholder.md
+└─ python_pipeline/
+   ├─ __main__.py
+   ├─ cli.py
+   ├─ defaults.py
+   ├─ config.py
+   ├─ db.py
+   ├─ collector.py
+   ├─ analysis.py
+   ├─ briefing.py
+   └─ utils.py
 ```
 
-현재 구조는 Apps Script 배포를 단순하게 유지하기 위해 `apps_script/`를 평평한 구조로 두고, 문서와 향후 Python 확장 공간을 분리했습니다. Apps Script에 그대로 복사하기 쉽고, 이후 `future_python/`에 수집기나 후처리기를 옮겨도 충돌이 적습니다.
+현재 구조는 Apps Script 배포를 단순하게 유지하면서도, 실제 운영 자동화는 `python_pipeline/`으로 옮길 수 있게 이중 경로를 둔 형태입니다. Apps Script는 Google Sheets 중심 운영에 맞고, Python은 SQLite 누적 저장과 재분석, 외부 스케줄러 연동에 더 적합합니다.
 
 ## MVP 범위
 
@@ -65,7 +74,8 @@ project-media_monitoring/
 6. `runCollectionOnly()`로 기사 수집을 먼저 수행합니다.
 7. `runAnalysisAndBriefing()`로 누적된 `news_raw` 기준 브리핑을 생성합니다.
 8. 필요하면 `runDailyMonitoring()`을 통합 실행용으로 사용합니다.
-9. `setupDailyTrigger()`를 실행해 일일 자동 트리거를 생성합니다.
+9. `setupCollectionTriggers()`와 `setupBriefingTrigger()`를 실행해 분리 트리거를 생성합니다.
+10. 기존 함수명을 유지하고 싶으면 `setupDailyTrigger()` 또는 `setupSeparatedTriggers()`를 실행해도 됩니다.
 
 상세 절차는 [docs/operations.md](/c:/Chae/GitHub/project-media_monitoring/docs/operations.md)에 정리되어 있습니다.
 
@@ -84,6 +94,48 @@ project-media_monitoring/
 - `runCollectionOnly()`: 주기적 누적 수집
 - `runAnalysisAndBriefing()`: 누적된 `news_raw`를 기준으로 재분석 및 브리핑 재작성
 - `runDailyMonitoring()`: 테스트용 통합 실행
+
+Python 중심 운영 방식:
+- `python -m python_pipeline init-db`
+- `python -m python_pipeline collect --analysis-reference-time now`
+- `python -m python_pipeline analyze --analysis-reference-time now`
+- `python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md`
+- 또는 한 번에 `python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md`
+
+기본 트리거 시간:
+- 수집: `00:15`, `03:15`, `05:00`, `12:15`, `18:15`, `21:15`
+- 브리핑: `05:30`
+
+## Python 파이프라인
+
+`python_pipeline/`은 Apps Script와 동일한 규칙 기반 로직을 SQLite 기반으로 옮긴 초안입니다.
+
+- 저장소: `SQLite`
+- 실행 방식: `CLI`
+- 수집원: `RSS`, `Google News RSS`, `sitemap`
+- 출력: DB 적재 + 텍스트 브리핑 파일
+
+기본 명령:
+
+```bash
+python -m python_pipeline init-db
+python -m python_pipeline collect --analysis-reference-time now
+python -m python_pipeline analyze --analysis-reference-time now
+python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md
+```
+
+부분 설정 덮어쓰기가 필요하면 루트의 `config.example.json`을 복사해 `--config`로 넘기면 됩니다.
+
+```bash
+python -m python_pipeline run --config config.local.json --analysis-reference-time now
+```
+
+Python 경로의 장점:
+- Google Sheets/Apps Script 편집기 없이 로컬에서 바로 개발·재실행 가능
+- `news_raw` 누적 저장 후 특정 기준 시점으로 재분석 가능
+- Windows 작업 스케줄러, GitHub Actions, 서버 cron으로 옮기기 쉬움
+
+세부 명령과 구조는 [docs/python_pipeline.md](/c:/Chae/GitHub/project-media_monitoring/docs/python_pipeline.md)를 보면 됩니다.
 
 ## 현재 한계
 

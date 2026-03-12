@@ -3,6 +3,21 @@ function initializeProject() {
   return 'MOLIT media monitoring MVP initialized.';
 }
 
+function getDefaultCollectionTriggerSlots_() {
+  return [
+    { hour: 0, minute: 15 },
+    { hour: 3, minute: 15 },
+    { hour: 5, minute: 0 },
+    { hour: 12, minute: 15 },
+    { hour: 18, minute: 15 },
+    { hour: 21, minute: 15 }
+  ];
+}
+
+function getDefaultBriefingTriggerSlot_() {
+  return { hour: 5, minute: 30 };
+}
+
 function resetConfigSourcesSheet() {
   ensureOperationalSheets();
   overwriteSheetRecords_(MM.SHEET_NAMES.SOURCES, MM.SOURCE_COLUMNS, MM.DEFAULT_CONFIG.sources);
@@ -77,20 +92,62 @@ function runAnalysisOnly() {
 }
 
 function setupDailyTrigger() {
+  return setupSeparatedTriggers();
+}
+
+function setupCollectionTriggers() {
   var triggers = ScriptApp.getProjectTriggers();
+  var slots = getDefaultCollectionTriggerSlots_();
 
   triggers.forEach(function(trigger) {
-    if (trigger.getHandlerFunction() === 'runDailyMonitoring') {
+    if (trigger.getHandlerFunction() === 'runCollectionOnly' ||
+        trigger.getHandlerFunction() === 'runDailyMonitoring') {
       ScriptApp.deleteTrigger(trigger);
     }
   });
 
-  ScriptApp.newTrigger('runDailyMonitoring')
+  slots.forEach(function(slot) {
+    createDailyTimeTrigger_('runCollectionOnly', slot.hour, slot.minute);
+  });
+
+  return 'Collection triggers created near ' + slots.map(function(slot) {
+    return formatTriggerSlot_(slot);
+  }).join(', ') + '.';
+}
+
+function setupBriefingTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var slot = getDefaultBriefingTriggerSlot_();
+
+  triggers.forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === 'runAnalysisAndBriefing' ||
+        trigger.getHandlerFunction() === 'runAnalysisOnly' ||
+        trigger.getHandlerFunction() === 'runDailyMonitoring') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  createDailyTimeTrigger_('runAnalysisAndBriefing', slot.hour, slot.minute);
+  return 'Briefing trigger created near ' + formatTriggerSlot_(slot) + '.';
+}
+
+function setupSeparatedTriggers() {
+  var collectionResult = setupCollectionTriggers();
+  var briefingResult = setupBriefingTrigger();
+  return collectionResult + '\n' + briefingResult;
+}
+
+function createDailyTimeTrigger_(handlerName, hour, minute) {
+  ScriptApp.newTrigger(handlerName)
     .timeBased()
-    .atHour(5)
-    .nearMinute(30)
+    .atHour(hour)
+    .nearMinute(minute)
     .everyDays(1)
     .create();
+}
 
-  return 'Daily trigger created near 05:30.';
+function formatTriggerSlot_(slot) {
+  var hour = slot.hour < 10 ? '0' + slot.hour : String(slot.hour);
+  var minute = slot.minute < 10 ? '0' + slot.minute : String(slot.minute);
+  return hour + ':' + minute;
 }

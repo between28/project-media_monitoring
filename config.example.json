@@ -2,11 +2,18 @@
   "topic": {
     "name": "도심 주택공급 확대 및 신속화 방안",
     "announcementDate": "2026-01-29",
-    "timezone": "Asia/Seoul"
+    "announcementDateTime": "2026-01-29T10:00:00+09:00"
+  },
+  "analysis": {
+    "referenceTime": "2026-02-01T10:00:00+09:00"
   },
   "collection": {
-    "maxItemsPerFeed": 15,
-    "reportLookbackHours": 36
+    "maxItemsPerFeed": 10,
+    "maxItemsPerGoogleNewsFeed": 8,
+    "reportLookbackHours": 36,
+    "maxBodyFetchCandidates": 12,
+    "bodyFetchMinimumPolicyScore": 4,
+    "fetchBodyFromGoogleNews": false
   },
   "dedup": {
     "fuzzyThreshold": 0.84
@@ -14,64 +21,59 @@
   "scoring": {
     "titleWeight": 3,
     "summaryWeight": 1,
+    "bodyWeight": 0.75,
     "phraseBonus": 3,
-    "highRelevanceThreshold": 6
+    "highRelevanceThreshold": 8,
+    "minimumKeywordHits": 2
   },
   "ranking": {
     "majorOutletBoost": 4,
     "criticalFrameBoost": 2,
-    "opinionBoost": 3
+    "opinionBoost": 3,
+    "repeatedNarrativeBonus": 1
   },
   "sources": [
-    {
-      "enabled": true,
-      "source_name": "Google News - 정책 전반",
-      "source_type": "google_news",
-      "category_group": "broad_keyword",
-      "feed_url": "",
-      "keyword": "도심 주택공급 확대",
-      "notes": "기본 활성화"
-    },
     {
       "enabled": true,
       "source_name": "Google News - 1.29 공급대책",
       "source_type": "google_news",
       "category_group": "policy_keyword",
       "feed_url": "",
-      "keyword": "1.29 공급대책",
-      "notes": "기본 활성화"
+      "keyword": "1.29 공급대책"
     },
     {
-      "enabled": false,
+      "enabled": true,
       "source_name": "연합뉴스",
       "source_type": "rss",
       "category_group": "wire",
-      "feed_url": "",
-      "keyword": "",
-      "notes": "운영 전 실제 RSS URL 확인 후 활성화"
+      "feed_url": "https://www.yna.co.kr/rss/news.xml"
     }
   ],
   "keyword_rules": [
     {
       "enabled": true,
-      "bucket": "topic",
-      "keyword": "도심",
-      "weight": 2,
-      "notes": ""
+      "bucket": "phrase",
+      "keyword": "도심 주택공급 확대 및 신속화 방안",
+      "weight": 5
     },
     {
       "enabled": true,
       "bucket": "phrase",
-      "keyword": "용산 국제업무지구 공급",
+      "keyword": "주택공급촉진 관계장관회의",
+      "weight": 5
+    },
+    {
+      "enabled": true,
+      "bucket": "phrase",
+      "keyword": "1.29대책",
       "weight": 4,
-      "notes": ""
+      "notes": "variant spelling"
     },
     {
       "enabled": true,
       "bucket": "frame_critical",
       "keyword": "우려",
-      "weight": 2,
-      "notes": ""
+      "weight": 2
     }
   ]
 }

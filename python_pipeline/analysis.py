@@ -13,6 +13,8 @@ from .utils import (
     add_note,
     collapse_whitespace,
     format_datetime,
+    infer_display_source_name,
+    is_portal_source_name,
     limit_text,
     looks_like_html,
     normalize_link,
@@ -27,6 +29,11 @@ from .utils import (
 
 
 LOGGER = logging.getLogger(__name__)
+
+WEAK_POSITIVE_FRAME_KEYWORDS = {"기대", "활성화"}
+OFFICIAL_ROLE_MARKERS = ("장관", "위원장", "차관", "본부장", "실장", "청장", "정부", "국토부")
+OFFICIAL_STATEMENT_MARKERS = ("밝혔", "말했", "강조", "설명", "점검", "언급", "당부")
+QUOTE_MARKERS = ('"', "“", "”", "‘", "’")
 
 
 def calculate_policy_score(record: dict, rules: list[dict], config: dict) -> dict:
@@ -132,6 +139,11 @@ def deduplicate_news(raw_records: list[dict], config: dict) -> None:
                 "clean_link": normalize_link(record.get("link", "")),
                 "exact_title": normalize_text_lower(record.get("title", "")),
                 "normalized_title": normalize_title(record.get("title", "")),
+                "display_source": infer_display_source_name(
+                    record.get("source_name", ""),
+                    record.get("title", ""),
+                    record.get("summary", ""),
+                ),
                 "representative_priority": get_representative_priority(record, config),
                 "time_value": get_record_time(record, config["timezone"]),
             }
@@ -205,10 +217,19 @@ def deduplicate_news(raw_records: list[dict], config: dict) -> None:
 def get_representative_priority(record: dict, config: dict) -> int:
     priority = get_source_priority(record.get("source_name", ""), config)
     source_type = str(record.get("source_type", "")).lower()
+    display_source = infer_display_source_name(
+        record.get("source_name", ""),
+        record.get("title", ""),
+        record.get("summary", ""),
+    )
     if source_type == "rss":
         priority += 10
     if source_type == "google_news":
         priority += 2
+    if display_source:
+        priority += get_source_priority(display_source, config)
+    if is_portal_source_name(display_source):
+        priority -= 6
     return priority
 
 
@@ -217,7 +238,12 @@ def find_fuzzy_duplicate(article: dict, representatives: list[dict], threshold: 
         return None
     for representative in representatives:
         similarity = title_similarity(article["normalized_title"], representative["normalized_title"])
-        if similarity >= threshold:
+        effective_threshold = threshold
+        current_is_portal = is_portal_source_name(article.get("display_source", ""))
+        representative_is_portal = is_portal_source_name(representative.get("display_source", ""))
+        if current_is_portal != representative_is_portal:
+            effective_threshold = min(effective_threshold, 0.70)
+        if similarity >= effective_threshold:
             return {"rep_id": representative["record"]["id"], "reason": f"duplicate_fuzzy_title_{similarity:.2f}"}
     return None
 
@@ -354,6 +380,7 @@ def classify_frames(raw_records: list[dict], config: dict) -> None:
         )
         scores = {"정책 설명": 0, "긍정 평가": 0, "비판 / 우려": 0, "정치 / 기관 이슈": 0}
         hits = []
+        bucket_hits = {bucket: [] for bucket, _ in frame_definitions}
 
         for bucket, category in frame_definitions:
             for rule in rules_by_bucket[bucket]:
@@ -361,6 +388,12 @@ def classify_frames(raw_records: list[dict], config: dict) -> None:
                 if keyword and keyword in text:
                     scores[category] += float(rule.get("weight", 1))
                     hits.append(f"{bucket}:{rule['keyword']}")
+                    bucket_hits[bucket].append(rule["keyword"])
+
+        if should_suppress_positive_frame(record, bucket_hits["frame_positive"]):
+            scores["긍정 평가"] = 0
+            hits = [hit for hit in hits if not hit.startswith("frame_positive:")]
+            record["notes"] = upsert_tagged_note(record.get("notes", ""), "frame_positive_suppressed", "true")
 
         selected_category = "기타"
         selected_score = 0.0
@@ -374,6 +407,22 @@ def classify_frames(raw_records: list[dict], config: dict) -> None:
 
         record["frame_category"] = selected_category
         record["notes"] = upsert_tagged_note(record.get("notes", ""), "frame_hits", "|".join(hits))
+
+
+def should_suppress_positive_frame(record: dict, positive_hits: list[str]) -> bool:
+    normalized_hits = {normalize_text_lower(keyword) for keyword in positive_hits if keyword}
+    if not normalized_hits:
+        return False
+    if not normalized_hits.issubset(WEAK_POSITIVE_FRAME_KEYWORDS):
+        return False
+
+    raw_text = collapse_whitespace(f"{record.get('title', '')} {record.get('summary', '')}")
+    lowered_text = normalize_text_lower(raw_text)
+    has_official_role = any(marker in lowered_text for marker in OFFICIAL_ROLE_MARKERS)
+    has_statement_context = any(marker in raw_text for marker in QUOTE_MARKERS) or any(
+        marker in lowered_text for marker in OFFICIAL_STATEMENT_MARKERS
+    )
+    return has_official_role and has_statement_context
 
 
 def rank_articles(raw_records: list[dict], config: dict) -> list[dict]:

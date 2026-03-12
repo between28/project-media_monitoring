@@ -143,8 +143,8 @@ python -m python_pipeline run --analysis-reference-time now --output-file output
 보도자료 입력 기반 실행:
 
 ```bash
-python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases --output-dir outputs/press_release
-python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md
+python -m python_pipeline derive-press-release --press-release inputs/press_releases --output-dir outputs/press_release
+python -m python_pipeline run --press-release inputs/press_releases --analysis-reference-time now
 ```
 
 운영 팁:
@@ -154,9 +154,10 @@ python -m python_pipeline run --press-release sample_inputs/press_releases --ana
 - `config.example.json`은 Python 경로의 부분 오버라이드 예시로도 사용할 수 있습니다.
 - `--press-release`를 주면 기본 주제 대신 보도자료에서 추출한 키워드와 Google News 질의를 사용합니다.
 - `--press-release` 실행 후에는 `sessions/<session_id>/outputs/briefings/`와 `sessions/<session_id>/outputs/references/` 아래에 일자별 결과물이 생성됩니다.
-- 세션별 수동 쿼리 보완은 `sessions/<session_id>/config/queries.manual.json`에서 관리합니다.
+- 세션별 수동 쿼리 보완은 `sessions/<session_id>/config/queries.manual.ini`에서 관리합니다.
 - 자동 추출본은 `queries.auto.json`, 실제 적용본은 `config.effective.json`으로 별도 보관됩니다.
 - 참고자료 기사표 기본 컬럼은 `순번`, `언론사`, `기사 제목`, `보도일시`입니다.
+- `queries.manual.ini`는 한 줄에 하나씩 입력합니다. 쉼표로 여러 값을 한 줄에 적지 않습니다.
 
 ## 7. 트리거 설정
 

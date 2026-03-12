@@ -47,12 +47,12 @@ python -m python_pipeline run --analysis-reference-time now --output-file output
 `HWPX` 보도자료를 넣으면 제목, 배포일, 핵심 구문, 일반 키워드, Google News 질의를 자동 추출할 수 있습니다.
 
 입력 위치 예시:
-- `sample_inputs/press_releases/`
+- `inputs/press_releases/`
 
 프로파일 추출:
 
 ```bash
-python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases --output-dir outputs/press_release
+python -m python_pipeline derive-press-release --press-release inputs/press_releases --output-dir outputs/press_release
 ```
 
 생성 파일:
@@ -63,7 +63,7 @@ python -m python_pipeline derive-press-release --press-release sample_inputs/pre
 바로 모니터링 실행:
 
 ```bash
-python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md
+python -m python_pipeline run --press-release inputs/press_releases --analysis-reference-time now
 ```
 
 운영 메모:
@@ -80,9 +80,32 @@ python -m python_pipeline run --press-release sample_inputs/press_releases --ana
   - 원본 `HWPX`와 가능한 경우 같은 이름의 `PDF`를 함께 복사해 보관
 - `config/queries.auto.json`
   - 보도자료에서 자동 추출된 구문, 키워드, Google News 질의
-- `config/queries.manual.json`
+- `config/queries.manual.ini`
   - 세션별 수동 보완 파일
-  - `*_add`, `*_disable`, `*_replace`로 자동 질의를 보정
+  - `#` 주석과 함께 사람이 직접 읽고 수정할 수 있는 형식
+  - `add`, `disable`, `replace` 항목으로 자동 질의를 보정
+
+예시:
+
+```ini
+[google_queries]
+# 한 줄에 하나씩 입력합니다. 쉼표로 여러 개를 한 줄에 적지 않습니다.
+add =
+    동북선 경전철 개통
+    서울 동북권 경전철
+
+disable =
+    동북선 왕십리역
+
+replace =
+```
+
+입력 규칙:
+- 각 값은 `add =` 아래에 `공백 4칸 + 문구` 형태로 한 줄씩 넣습니다.
+- `,`로 여러 값을 한 줄에 나열하지 않습니다.
+- 띄어쓰기는 검색에 쓰고 싶은 표현 그대로 적습니다.
+- `disable`은 자동 추출된 값과 최대한 같은 문구로 적는 편이 안전합니다.
+- `replace`를 쓰면 자동 추출값 대신 그 목록을 기본값으로 사용합니다.
 - `config/config.auto.json`
   - 자동 추출 결과만 반영한 실행 설정
 - `config/config.effective.json`

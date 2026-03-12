@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import configparser
 import json
 import re
 import shutil
@@ -510,6 +511,17 @@ def build_config_from_press_release(profile: dict[str, Any], manual_overrides: d
             }
         )
 
+    derived_core_keywords = []
+    seen_core_keywords = set()
+    for keyword in effective_profile.get("topic_keywords", []):
+        normalized = normalize_text_lower(keyword)
+        if not normalized or normalized in seen_core_keywords:
+            continue
+        seen_core_keywords.add(normalized)
+        derived_core_keywords.append(keyword)
+        if len(derived_core_keywords) >= 6:
+            break
+
     topic_name = effective_profile.get("title") or base_config["topic"]["name"]
     release_date = effective_profile.get("release_date") or base_config["topic"]["announcementDate"]
     release_datetime = effective_profile.get("release_datetime") or base_config["topic"]["announcementDateTime"]
@@ -523,6 +535,17 @@ def build_config_from_press_release(profile: dict[str, Any], manual_overrides: d
         "referenceTime": "",
         "windowStartTime": release_datetime,
     }
+    base_config.setdefault("collection", {})["rawCoreKeywords"] = derived_core_keywords or base_config.get("collection", {}).get("rawCoreKeywords", [])
+    base_config.setdefault("collection", {})["rawMinimumKeywordHits"] = 1
+    base_config.setdefault("collection", {})["maxItemsPerFeed"] = max(
+        int(base_config.get("collection", {}).get("maxItemsPerFeed", 10)),
+        30,
+    )
+    base_config.setdefault("collection", {})["maxItemsPerGoogleNewsFeed"] = max(
+        int(base_config.get("collection", {}).get("maxItemsPerGoogleNewsFeed", 8)),
+        20,
+    )
+    base_config["genericThemeKeywords"] = derived_core_keywords[:]
     base_config["sources"] = derived_sources + non_google_sources
     base_config["keywordRules"] = generic_keyword_rules + dedupe_keyword_rules(derived_keyword_rules)
     return base_config
@@ -615,7 +638,7 @@ def build_press_session_paths(profile: dict[str, Any], session_root: str | Path)
         "profile_json": str(config_dir / "press_release_profile.json"),
         "profile_markdown": str(config_dir / "press_release_profile.md"),
         "queries_auto_json": str(config_dir / "queries.auto.json"),
-        "queries_manual_json": str(config_dir / "queries.manual.json"),
+        "queries_manual_path": str(config_dir / "queries.manual.ini"),
         "config_auto_json": str(config_dir / "config.auto.json"),
         "config_effective_json": str(config_dir / "config.effective.json"),
         "metadata_json": str(session_dir / "session_metadata.json"),
@@ -653,7 +676,7 @@ def save_press_session_metadata(
     auto_config = build_config_from_press_release(profile)
     queries_auto = build_query_payload(profile)
     effective_profile = apply_manual_overrides_to_profile(profile, manual_overrides)
-    queries_manual = ensure_manual_override_file(session_paths["queries_manual_json"], manual_overrides)
+    ensure_manual_override_file(session_paths["queries_manual_path"], manual_overrides)
     copy_press_release_inputs(profile, session_paths)
 
     Path(session_paths["profile_json"]).write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -676,7 +699,7 @@ def save_press_session_metadata(
         "press_release_input_path": profile.get("input_path", ""),
         "press_release_format": profile.get("input_format", ""),
         "auto_queries_path": session_paths["queries_auto_json"],
-        "manual_queries_path": session_paths["queries_manual_json"],
+        "manual_queries_path": session_paths["queries_manual_path"],
         "effective_config_path": session_paths["config_effective_json"],
         "active_google_queries": effective_profile.get("google_queries", []),
     }
@@ -686,7 +709,7 @@ def save_press_session_metadata(
         "profile_json": session_paths["profile_json"],
         "profile_markdown": session_paths["profile_markdown"],
         "queries_auto_json": session_paths["queries_auto_json"],
-        "queries_manual_json": session_paths["queries_manual_json"],
+        "queries_manual_path": session_paths["queries_manual_path"],
         "config_auto_json": session_paths["config_auto_json"],
         "config_effective_json": session_paths["config_effective_json"],
         "metadata_json": session_paths["metadata_json"],
@@ -708,21 +731,25 @@ def ensure_manual_override_file(path: str | Path, manual_overrides: dict[str, An
     override_path = Path(path)
     if manual_overrides is None:
         if override_path.exists():
-            manual_overrides = json.loads(override_path.read_text(encoding="utf-8"))
+            manual_overrides = parse_manual_override_file(override_path)
         else:
-            manual_overrides = deepcopy(MANUAL_OVERRIDE_TEMPLATE)
+            legacy_json_path = override_path.with_suffix(".json")
+            if legacy_json_path.exists():
+                manual_overrides = json.loads(legacy_json_path.read_text(encoding="utf-8"))
+            else:
+                manual_overrides = deepcopy(MANUAL_OVERRIDE_TEMPLATE)
     else:
         manual_overrides = normalize_manual_overrides(manual_overrides)
 
     normalized = normalize_manual_overrides(manual_overrides)
-    serialized = json.dumps(normalized, ensure_ascii=False, indent=2)
+    serialized = build_manual_override_file_text(normalized)
     if not override_path.exists() or override_path.read_text(encoding="utf-8") != serialized:
         override_path.write_text(serialized, encoding="utf-8")
     return normalized
 
 
 def load_session_manual_overrides(session_paths: dict[str, str]) -> dict[str, Any]:
-    return ensure_manual_override_file(session_paths["queries_manual_json"])
+    return ensure_manual_override_file(session_paths["queries_manual_path"])
 
 
 def normalize_manual_overrides(overrides: dict[str, Any] | None) -> dict[str, Any]:
@@ -790,6 +817,130 @@ def dedupe_text_values(values: list[str]) -> list[str]:
         seen.add(normalized)
         result.append(cleaned)
     return result
+
+
+def parse_manual_override_file(path: Path) -> dict[str, Any]:
+    parser = configparser.ConfigParser(
+        interpolation=None,
+        comment_prefixes=("#", ";"),
+        inline_comment_prefixes=("#", ";"),
+        strict=False,
+    )
+    parser.optionxform = str
+    parser.read(path, encoding="utf-8")
+
+    overrides = {}
+    for section_name in ("google_queries", "topic_keywords", "phrases"):
+        section = parser[section_name] if parser.has_section(section_name) else {}
+        overrides[f"{section_name}_add"] = split_override_lines(section.get("add", ""))
+        overrides[f"{section_name}_disable"] = split_override_lines(section.get("disable", ""))
+        overrides[f"{section_name}_replace"] = split_override_lines(section.get("replace", ""))
+    return normalize_manual_overrides(overrides)
+
+
+def split_override_lines(value: str) -> list[str]:
+    lines = []
+    for raw_line in str(value or "").splitlines():
+        cleaned = collapse_whitespace(raw_line)
+        if not cleaned:
+            continue
+        lines.append(cleaned)
+    return dedupe_text_values(lines)
+
+
+def build_manual_override_file_text(overrides: dict[str, Any]) -> str:
+    lines = [
+        "# 세션별 수동 쿼리 보완 파일입니다.",
+        "# 값은 한 줄에 하나씩 입력합니다. 각 항목은 아래처럼 공백 4칸 들여써서 적습니다.",
+        "# 쉼표(,)로 여러 값을 한 줄에 적지 않습니다.",
+        "# 띄어쓰기는 검색에 쓰고 싶은 문구 그대로 유지합니다.",
+        "# 값을 비워두고 싶으면 `add =` 또는 `disable =` 아래를 빈 상태로 둡니다.",
+        "# 예시:",
+        "# add =",
+        "#     동북선 경전철 개통",
+        "#     서울 동북권 경전철",
+        "# disable =",
+        "#     동북선 왕십리역",
+        "# replace =",
+        "#     동북선 경전철 개통",
+        "#     서울 동북권 교통편의 향상",
+        "#",
+        "# add: 자동 추출 결과에 추가",
+        "# disable: 자동 추출 결과 중 제외",
+        "# replace: 자동 추출 결과 대신 이 목록을 기본값으로 사용",
+        "",
+    ]
+    lines.extend(
+        build_manual_override_section(
+            "google_queries",
+            "Google News 질의",
+            "언론 검색에 직접 사용할 질의입니다.",
+            overrides["google_queries_add"],
+            overrides["google_queries_disable"],
+            overrides["google_queries_replace"],
+        )
+    )
+    lines.append("")
+    lines.extend(
+        build_manual_override_section(
+            "topic_keywords",
+            "일반 키워드",
+            "정책 관련도 점수 계산에 쓰는 일반 키워드입니다.",
+            overrides["topic_keywords_add"],
+            overrides["topic_keywords_disable"],
+            overrides["topic_keywords_replace"],
+        )
+    )
+    lines.append("")
+    lines.extend(
+        build_manual_override_section(
+            "phrases",
+            "구문 키워드",
+            "정책명·사업명·고유 표현처럼 강한 신호로 보는 구문입니다.",
+            overrides["phrases_add"],
+            overrides["phrases_disable"],
+            overrides["phrases_replace"],
+        )
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_manual_override_section(
+    section_name: str,
+    section_label: str,
+    section_description: str,
+    add_values: list[str],
+    disable_values: list[str],
+    replace_values: list[str],
+) -> list[str]:
+    lines = [
+        f"[{section_name}]",
+        f"# {section_label}: {section_description}",
+        "# 입력 규칙: 한 줄에 하나씩, 쉼표 없이 입력합니다.",
+        "# add: 여기에 적은 값은 자동 추출 결과에 추가됩니다.",
+        "add =",
+    ]
+    lines.extend(f"    {value}" for value in add_values)
+    lines.extend(
+        [
+            "",
+            "# disable: 자동 추출된 값 중 제외할 문구를 정확히 적습니다.",
+            "# 자동 추출값과 띄어쓰기까지 가능한 한 동일하게 적는 편이 안전합니다.",
+            "disable =",
+        ]
+    )
+    lines.extend(f"    {value}" for value in disable_values)
+    lines.extend(
+        [
+            "",
+            "# replace: 자동 추출값 대신 아래 목록을 기본값으로 사용합니다.",
+            "# 비워두면 auto + add/disable 규칙을 사용합니다.",
+            "replace =",
+        ]
+    )
+    lines.extend(f"    {value}" for value in replace_values)
+    return lines
 
 
 def copy_press_release_inputs(profile: dict[str, Any], session_paths: dict[str, str]) -> None:

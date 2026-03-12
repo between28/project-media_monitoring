@@ -1,6 +1,6 @@
-# Press Release Samples
+# Press Release Inputs
 
-이 폴더에 보도자료 샘플 파일을 넣으면 됩니다.
+이 폴더에 실제 보도자료 입력 파일을 넣으면 됩니다.
 
 권장 입력 형식:
 - `HWPX` 우선

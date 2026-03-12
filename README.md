@@ -14,7 +14,7 @@ project-media_monitoring/
 ├─ AGENTS.md
 ├─ TASK.md
 ├─ config.example.json
-├─ sample_inputs/
+├─ inputs/
 │  └─ press_releases/
 │     └─ README.md
 ├─ apps_script/
@@ -107,10 +107,10 @@ Python 중심 운영 방식:
 - `python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md`
 - 또는 한 번에 `python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md`
 - 보도자료 기반 자동 키워드 모드:
-  - `python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases`
-  - `python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md`
+  - `python -m python_pipeline derive-press-release --press-release inputs/press_releases`
+  - `python -m python_pipeline run --press-release inputs/press_releases --analysis-reference-time now`
   - 실행 후 `sessions/<session_id>/outputs/` 아래에 `briefings/D+0~D+3_*.md`, `references/*_기사목록.csv`, `references/*_기사목록.md`가 생성됩니다.
-  - 세션별 수동 쿼리 보완 파일은 `sessions/<session_id>/config/queries.manual.json`에 저장됩니다.
+  - 세션별 수동 쿼리 보완 파일은 `sessions/<session_id>/config/queries.manual.ini`에 저장됩니다.
 
 기본 트리거 시간:
 - 수집: `00:15`, `03:15`, `05:00`, `12:15`, `18:15`, `21:15`
@@ -137,14 +137,14 @@ python -m python_pipeline brief --analysis-reference-time now --output-file outp
 보도자료 기반 자동 키워드 추출:
 
 ```bash
-python -m python_pipeline derive-press-release --press-release sample_inputs/press_releases
-python -m python_pipeline run --press-release sample_inputs/press_releases --analysis-reference-time now --output-file outputs/latest_briefing.md
+python -m python_pipeline derive-press-release --press-release inputs/press_releases
+python -m python_pipeline run --press-release inputs/press_releases --analysis-reference-time now
 ```
 
 보도자료 세션 산출물:
 - `sessions/<session_id>/config/`
   - `queries.auto.json`
-  - `queries.manual.json`
+  - `queries.manual.ini`
   - `config.auto.json`
   - `config.effective.json`
 - `sessions/<session_id>/data/`
@@ -159,6 +159,12 @@ python -m python_pipeline run --press-release sample_inputs/press_releases --ana
   - `언론사`
   - `기사 제목`
   - `보도일시`
+
+`queries.manual.ini` 입력 규칙:
+- 각 값은 한 줄에 하나씩 적습니다.
+- 쉼표(`,`)로 여러 값을 한 줄에 나열하지 않습니다.
+- 띄어쓰기는 검색에 쓰고 싶은 표현 그대로 유지합니다.
+- `disable`에는 자동 추출된 문구와 최대한 같은 값을 적습니다.
 
 부분 설정 덮어쓰기가 필요하면 루트의 `config.example.json`을 복사해 `--config`로 넘기면 됩니다.
 

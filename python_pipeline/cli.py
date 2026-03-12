@@ -207,7 +207,7 @@ def maybe_build_session_outputs(connection, press_release_profile, config: dict,
 def print_session_summary(session_paths: dict[str, str], session_summary: dict) -> None:
     print("\nSession outputs:")
     print(f"- session_dir: {session_paths['session_dir']}")
-    print(f"- manual_queries: {session_paths['queries_manual_json']}")
+    print(f"- manual_queries: {session_paths['queries_manual_path']}")
     print(f"- effective_config: {session_paths['config_effective_json']}")
     print(f"- latest_briefing: {session_summary['latest_briefing_path']}")
     print(f"- latest_reference_csv: {session_summary['latest_reference_csv']}")

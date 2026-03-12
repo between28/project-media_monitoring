@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Iterable
@@ -15,6 +16,7 @@ SOURCE_SUFFIX_PATTERN = re.compile(
 TITLE_PUBLISHER_PATTERN = re.compile(r"\s(?:\||-|–|—|/)\s*([A-Za-z0-9가-힣·&. ]{2,40})\s*$")
 NORMALIZE_TITLE_PUNCTUATION = re.compile(r"""[!"#$%&'*+,./:;<=>?@\\^_`{|}~·…ㆍ]""")
 TAGGED_NOTE_PATTERN_TEMPLATE = r"(?:^|\s\|\s){tag}=[^|]*"
+TRAILING_PUBLISHER_PATTERN = re.compile(r"\s(?:\||-|–|—|/)\s*[A-Za-z0-9가-힣·&. ]{2,40}\s*$")
 DEFAULT_HTTP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -25,6 +27,7 @@ DEFAULT_HTTP_HEADERS = {
 }
 GOOGLE_NEWS_PREFIXES = ("Google News - 자동 - ", "Google News - ")
 SOURCE_SECTION_SUFFIXES = {"정치", "경제", "사회", "부동산", "산업", "국제", "문화", "스포츠", "금융", "증권"}
+PORTAL_SOURCE_NAMES = {"네이트", "nate", "daum", "다음", "네이버", "naver", "msn"}
 
 
 def collapse_whitespace(text: str | None) -> str:
@@ -146,10 +149,21 @@ def normalize_link(link: str | None) -> str:
     value = str(link or "").strip()
     if not value:
         return ""
-    value = value.split("#", 1)[0]
-    value = value.split("?", 1)[0]
-    value = re.sub(r"/+$", "", value)
-    return value.lower()
+    parsed = urllib.parse.urlsplit(value)
+    scheme = (parsed.scheme or "https").lower()
+    netloc = parsed.netloc.lower()
+    path = parsed.path or ""
+
+    if netloc == "m.dailian.co.kr":
+        netloc = "www.dailian.co.kr"
+    elif netloc == "m.news1.kr":
+        netloc = "www.news1.kr"
+
+    if netloc.endswith("news1.kr") and path.startswith("/amp/"):
+        path = path[4:]
+
+    path = re.sub(r"/+$", "", path)
+    return urllib.parse.urlunsplit((scheme, netloc, path, "", ""))
 
 
 def normalize_title(title: str | None) -> str:
@@ -159,6 +173,7 @@ def normalize_title(title: str | None) -> str:
     text = re.sub(r"【[^】]*】", " ", text)
     text = re.sub(r"<[^>]+>", " ", text)
     text = SOURCE_SUFFIX_PATTERN.sub(" ", text)
+    text = TRAILING_PUBLISHER_PATTERN.sub(" ", text)
     text = re.sub(r"\b(종합|속보|단독|사진|영상|인터뷰)\b", " ", text)
     text = NORMALIZE_TITLE_PUNCTUATION.sub(" ", text)
     text = re.sub(r"\s+", " ", text)
@@ -191,9 +206,21 @@ def extract_publisher_name_from_text(text: str | None) -> str:
     return publisher
 
 
+def is_portal_source_name(source_name: str | None) -> bool:
+    normalized = normalize_display_source_name(source_name).strip().lower()
+    if not normalized:
+        return False
+    return normalized in PORTAL_SOURCE_NAMES
+
+
 def infer_display_source_name(source_name: str | None, title: str | None = None, summary: str | None = None) -> str:
     normalized_source = normalize_display_source_name(source_name)
     raw_source = collapse_whitespace(source_name)
+
+    if "|" in normalized_source:
+        left, right = [collapse_whitespace(part) for part in normalized_source.split("|", 1)]
+        if is_portal_source_name(left) and right:
+            normalized_source = right
 
     if any(raw_source.startswith(prefix) for prefix in GOOGLE_NEWS_PREFIXES):
         for candidate_text in (title, summary):

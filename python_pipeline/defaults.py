@@ -128,6 +128,9 @@ DEFAULT_CONFIG = {
         "데일리안": 1,
         "국토일보": 1,
         "건설경제": 1,
+        "서울Pn": 1,
+        "데일리머니": 1,
+        "프레스뉴스": 1,
     },
     "sources": [
         {
@@ -599,6 +602,33 @@ DEFAULT_CONFIG = {
             "notes": "default source list",
         },
         {
+            "enabled": True,
+            "source_name": "서울Pn",
+            "source_type": "sitemap",
+            "category_group": "policy_sector",
+            "feed_url": "https://go.seoul.co.kr/sitemap/sitemap_latestArticle",
+            "keyword": "",
+            "notes": "updated on 2026-03-12: verified working news sitemap",
+        },
+        {
+            "enabled": True,
+            "source_name": "데일리머니",
+            "source_type": "rss",
+            "category_group": "policy_sector",
+            "feed_url": "https://www.thedailymoney.com/rss/allArticle.xml",
+            "keyword": "",
+            "notes": "updated on 2026-03-12: verified working RSS feed",
+        },
+        {
+            "enabled": True,
+            "source_name": "프레스뉴스",
+            "source_type": "sitemap",
+            "category_group": "policy_sector",
+            "feed_url": "https://www.pressna.com/sitemap.xml",
+            "keyword": "",
+            "notes": "updated on 2026-03-12: verified working news sitemap",
+        },
+        {
             "enabled": False,
             "source_name": "건설경제",
             "source_type": "rss",
@@ -677,4 +707,3 @@ DEFAULT_RUNTIME_SETTINGS = [
 
 def clone_default_config():
     return deepcopy(DEFAULT_CONFIG)
-

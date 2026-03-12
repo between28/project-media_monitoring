@@ -84,7 +84,7 @@ def build_overall_summary(candidates: list[dict], frame_counts: dict, theme_grou
     analysis_label = format_readable_datetime(analysis_now, config["timezone"])
 
     lines.append(
-        f"기준 시점({analysis_label}) 기준, {config['topic']['name']} 관련 고관련 기사 {len(candidates)}건이 선별되었고 {source_count}개 매체에서 유사 서사가 확인되었습니다."
+        f"기준 시점({analysis_label}) 기준, {config['topic']['name']} 관련 고관련 기사 {len(candidates)}건이 선별되었고 이를 보도한 언론사는 {source_count}곳이었습니다."
     )
     if len(dominant_frames) > 1:
         lines.append(f"보도 흐름은 {dominant_frames[0]} 중심이며 {dominant_frames[1]} 성격 보도가 함께 관찰되었습니다.")
@@ -96,10 +96,6 @@ def build_overall_summary(candidates: list[dict], frame_counts: dict, theme_grou
     else:
         lines.append("주요 보도는 정책 전반의 공급 계획과 후속 일정 설명에 집중되었습니다.")
 
-    if frame_counts.get("비판 / 우려", 0) > 0:
-        lines.append("브리핑 시에는 실효성, 추진 속도, 관계기관 협의와 관련한 우려 지점에 대한 보완 설명이 필요합니다.")
-    else:
-        lines.append("브리핑 시에는 정책 핵심 내용, 후속 일정, 집행 절차를 일관된 메시지로 제시하는 것이 적절합니다.")
     return "\n".join(lines)
 
 
@@ -121,8 +117,6 @@ def build_issue_section(frame_counts: dict, theme_groups: list[dict]) -> str:
         lines.append("- 정책 실행 가능성, 추진 속도, 현장 수용성과 관련한 우려 신호가 반복적으로 나타났습니다.")
     if frame_counts.get("정치 / 기관 이슈", 0) > 0:
         lines.append("- 관계기관 협의, 지자체 조율, 정치권 반응 등 제도 외부 변수에 대한 관심이 확인되었습니다.")
-    if frame_counts.get("정책 설명", 0) > 0:
-        lines.append("- 핵심 내용, 대상 범위, 추진 일정, 후속 절차 등 정책 세부 설명 수요가 여전히 높습니다.")
     if frame_counts.get("긍정 평가", 0) > 0:
         lines.append("- 일부 보도는 정책 효과와 기대 편익을 긍정적으로 평가했습니다.")
     for group in theme_groups[:2]:

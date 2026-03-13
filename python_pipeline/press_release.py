@@ -143,15 +143,18 @@ DOMAIN_PHRASE_MARKERS = (
 
 TITLE_PREFIX_PATTERN = re.compile(r"^[가-힣]{2,10}(?:\s*[가-힣]{1,6})?\s*(장관|위원장|차관|본부장|실장),?\s*")
 TITLE_DATE_PREFIX_PATTERN = re.compile(r"^\d{1,2}일\s+")
+PRESS_RELEASE_DATE_PATTERN = re.compile(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})")
 KOREAN_PARTICLE_SUFFIXES = (
     "에서는",
     "으로는",
     "에서",
     "으로",
+    "에게서",
     "에게",
     "까지",
     "부터",
     "처럼",
+    "에게는",
     "이다",
     "한다",
     "했다",
@@ -170,6 +173,8 @@ KOREAN_PARTICLE_SUFFIXES = (
     "과",
     "도",
     "로",
+    "에",
+    "의",
 )
 GENERIC_KEYWORD_STOPWORDS = {
     "안",
@@ -315,14 +320,20 @@ def normalize_press_release_lines(text: str) -> list[str]:
 
 
 def extract_press_release_title(lines: list[str], path: Path) -> str:
+    early_title = find_early_title_line(lines)
+    if early_title:
+        return early_title
+
     candidates = []
     for index, line in enumerate(lines[:12]):
-        if any(marker in line for marker in ("보도시점", "배포 :", "담당 부서", "책임자")):
+        if is_metadata_line(line):
             continue
-        if line.startswith(("□", "ㅇ", "*")):
+        if line.startswith(("□", "ㅇ", "*")) or is_section_heading(line):
             continue
         cleaned = clean_title_line(line)
         if not cleaned:
+            continue
+        if is_metadata_line(cleaned):
             continue
         score = score_title_candidate(cleaned, index)
         candidates.append((score, index, cleaned))
@@ -331,22 +342,39 @@ def extract_press_release_title(lines: list[str], path: Path) -> str:
         _score, _index, title = max(candidates, key=lambda item: (item[0], -item[1], -len(item[2])))
         return collapse_whitespace(title)
 
-    stem = path.stem
-    stem = re.sub(r"^\d+\s*", "", stem)
-    return collapse_whitespace(stem)
+    return collapse_whitespace(clean_filename_title(path.stem))
+
+
+def find_early_title_line(lines: list[str]) -> str:
+    for line in lines[:6]:
+        if is_metadata_line(line):
+            continue
+        if line.startswith(("□", "ㅇ", "*")) or is_section_heading(line):
+            continue
+        cleaned = clean_title_line(line)
+        if not cleaned or is_metadata_line(cleaned):
+            continue
+        if len(cleaned) < 6:
+            continue
+        return collapse_whitespace(cleaned)
+    return ""
 
 
 def extract_release_info(lines: list[str], path: Path) -> dict[str, str]:
-    text = "\n".join(lines[:10])
-    date_match = re.search(r"배포\s*:\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", text)
+    text = normalize_release_metadata_text("\n".join(lines[:12]))
     release_date = ""
     release_datetime = ""
+    date_match = re.search(r"배포\s*(?::|/)?\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})", text)
+    if not date_match:
+        date_match = PRESS_RELEASE_DATE_PATTERN.search(text)
     if date_match:
         year, month, day = (int(value) for value in date_match.groups())
         release_date = f"{year:04d}-{month:02d}-{day:02d}"
         release_datetime = datetime(year, month, day, 10, 0, 0, tzinfo=ZoneInfo("Asia/Seoul")).isoformat()
 
-    release_label_match = re.search(r"보도시점\s*:\s*([^/]+)", text)
+    release_label_match = re.search(r"보도시점\s*(?::|/)\s*(.+?)\s*/\s*배포", text)
+    if not release_label_match:
+        release_label_match = re.search(r"보도시점\s*:\s*([^/]+)", text)
     release_label = collapse_whitespace(release_label_match.group(1) if release_label_match else "")
 
     department = ""
@@ -373,8 +401,13 @@ def build_press_release_briefing_summary(lines: list[str], title: str) -> list[s
     if lead_line:
         return [ensure_sentence(clean_press_release_line(lead_line))]
 
+    if title and not is_metadata_line(title) and not is_section_heading(title):
+        return [ensure_sentence(clean_press_release_line(title))]
+
     fallback_sentences = []
     for line in lines:
+        if is_metadata_line(line) or is_section_heading(line):
+            continue
         cleaned = clean_press_release_line(line)
         if not cleaned or len(cleaned) < 15:
             continue
@@ -388,6 +421,7 @@ def clean_title_line(line: str) -> str:
     cleaned = collapse_whitespace(str(line or ""))
     cleaned = re.sub(r"^(동정자료|보도자료)\s*", "", cleaned).strip()
     cleaned = re.sub(r"^[\-–—]\s*", "", cleaned)
+    cleaned = re.sub(r"^[가-힣]{1,3}>\s*", "", cleaned)
     cleaned = TITLE_DATE_PREFIX_PATTERN.sub("", cleaned)
     cleaned = clean_phrase(TITLE_PREFIX_PATTERN.sub("", cleaned))
     return collapse_whitespace(cleaned)
@@ -409,11 +443,52 @@ def score_title_candidate(line: str, index: int) -> int:
         score -= 2
     if has_domain_signal(line):
         score += 4
+    if is_section_heading(line):
+        score -= 12
+    if is_metadata_line(line):
+        score -= 12
     if looks_like_body_sentence(line):
         score -= 10
     if re.search(r"[~·]", line):
         score += 1
     return score
+
+
+def normalize_release_metadata_text(text: str) -> str:
+    return collapse_whitespace(str(text or "").replace("><", " / ").replace(">", " "))
+
+
+def is_metadata_line(line: str) -> bool:
+    cleaned = collapse_whitespace(str(line or ""))
+    normalized = cleaned.replace("><", " / ")
+    if not cleaned:
+        return False
+    if any(marker in normalized for marker in ("보도시점", "배포 :", "배포 /", "담당 부서", "책임자", "문의")):
+        return True
+    if re.fullmatch(r".*(보도자료|보도참고자료|동정자료)$", cleaned) and len(cleaned) <= 20:
+        return True
+    if "보도자료" in cleaned and len(cleaned) <= 20:
+        return True
+    return False
+
+
+def is_section_heading(line: str) -> bool:
+    cleaned = collapse_whitespace(str(line or ""))
+    if re.match(r"^\d+\.\s*[가-힣A-Za-z0-9]", cleaned):
+        return True
+    return False
+
+
+def clean_filename_title(stem: str) -> str:
+    cleaned = collapse_whitespace(stem.replace("_", " ").replace("+", " "))
+    cleaned = re.sub(r"^\d{6}\s*", "", cleaned)
+    cleaned = re.sub(r"^\[[^\]]+\]\s*", "", cleaned)
+    cleaned = re.sub(r"^\([^)]+\)\s*", "", cleaned)
+    cleaned = re.sub(r"\([^)]+과\)\s*$", "", cleaned)
+    cleaned = re.sub(r"\([^)]*배포[^)]*\)\s*(\(\d+\))?$", "", cleaned)
+    cleaned = re.sub(r"\(\d+\)$", "", cleaned)
+    cleaned = re.sub(r"\s*보도자료\s*$", "", cleaned)
+    return collapse_whitespace(cleaned)
 
 
 def clean_press_release_line(line: str) -> str:
@@ -441,13 +516,15 @@ def derive_candidate_phrases(lines: list[str], title: str) -> list[str]:
             scores[cleaned] += 8
 
     title_core = clean_phrase(title)
-    if is_valid_phrase(title_core) and has_domain_signal(title_core):
-        scores[title_core] += 9
+    if title_core and not is_metadata_line(title_core) and not is_section_heading(title_core):
+        scores[title_core] += 7
+        if has_domain_signal(title_core):
+            scores[title_core] += 2
 
     title_fragments = re.split(r"[,/()]| 및 |…+", title_core)
     for fragment in title_fragments:
         cleaned = clean_phrase(fragment)
-        if is_valid_phrase(cleaned) and has_domain_signal(cleaned):
+        if is_valid_phrase(cleaned) and (has_domain_signal(cleaned) or len(cleaned) >= 8):
             scores[cleaned] += 5
 
     subtitle_line = next(
@@ -600,7 +677,7 @@ def build_google_queries(title: str, phrases: list[str], topic_keywords: list[st
     entities = extract_named_entities_from_text(title + "\n" + "\n".join(phrases[:6]))
 
     core_title = clean_phrase(title)
-    if core_title and has_domain_signal(core_title):
+    if core_title and not is_metadata_line(core_title) and not is_section_heading(core_title):
         queries.append(core_title)
         if "," in core_title:
             title_head, title_tail = (collapse_whitespace(part) for part in core_title.split(",", 1))

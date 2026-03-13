@@ -216,5 +216,3 @@ sessions/
 inputs/press_releases/*.hwpx
 inputs/press_releases/*.pdf
 !inputs/press_releases/README.md
-sample_inputs/press_releases/*.hwpx
-sample_inputs/press_releases/*.pdf

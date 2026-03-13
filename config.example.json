@@ -1,79 +1,92 @@
 {
   "topic": {
-    "name": "도심 주택공급 확대 및 신속화 방안",
-    "announcementDate": "2026-01-29",
-    "announcementDateTime": "2026-01-29T10:00:00+09:00"
+    "name": "예시 정책 이슈",
+    "announcementDate": "2026-03-13",
+    "announcementDateTime": "2026-03-13T10:00:00+09:00"
   },
   "analysis": {
-    "referenceTime": "2026-02-01T10:00:00+09:00"
+    "referenceTime": "",
+    "windowStartTime": "2026-03-13T10:00:00+09:00"
   },
   "collection": {
-    "maxItemsPerFeed": 10,
-    "maxItemsPerGoogleNewsFeed": 8,
-    "reportLookbackHours": 36,
-    "maxBodyFetchCandidates": 12,
-    "bodyFetchMinimumPolicyScore": 4,
-    "fetchBodyFromGoogleNews": false
-  },
-  "dedup": {
-    "fuzzyThreshold": 0.84
-  },
-  "scoring": {
-    "titleWeight": 3,
-    "summaryWeight": 1,
-    "bodyWeight": 0.75,
-    "phraseBonus": 3,
-    "highRelevanceThreshold": 8,
-    "minimumKeywordHits": 2
-  },
-  "ranking": {
-    "majorOutletBoost": 4,
-    "criticalFrameBoost": 2,
-    "opinionBoost": 3,
-    "repeatedNarrativeBonus": 1
+    "maxItemsPerFeed": 100,
+    "maxItemsPerGoogleNewsFeed": 50,
+    "reportLookbackHours": 96,
+    "requireQueryMatch": true,
+    "rawMinimumQueryHits": 1,
+    "rawCoreKeywords": [
+      "예시 핵심 키워드"
+    ]
   },
   "sources": [
     {
       "enabled": true,
-      "source_name": "Google News - 1.29 공급대책",
+      "source_name": "Google News - 예시 검색 쿼리",
       "source_type": "google_news",
-      "category_group": "policy_keyword",
+      "category_group": "press_release_keyword",
       "feed_url": "",
-      "keyword": "1.29 공급대책"
+      "keyword": "예시 검색 쿼리",
+      "notes": "replace with your query"
     },
     {
       "enabled": true,
       "source_name": "연합뉴스",
       "source_type": "rss",
       "category_group": "wire",
-      "feed_url": "https://www.yna.co.kr/rss/news.xml"
+      "feed_url": "https://www.yna.co.kr/rss/news.xml",
+      "keyword": "",
+      "notes": "sample direct feed"
     }
   ],
   "keyword_rules": [
     {
       "enabled": true,
       "bucket": "phrase",
-      "keyword": "도심 주택공급 확대 및 신속화 방안",
-      "weight": 5
+      "keyword": "예시 검색 쿼리",
+      "weight": 5,
+      "notes": "replace with your search query"
     },
     {
       "enabled": true,
-      "bucket": "phrase",
-      "keyword": "주택공급촉진 관계장관회의",
-      "weight": 5
+      "bucket": "frame_policy",
+      "keyword": "발표",
+      "weight": 1,
+      "notes": ""
     },
     {
       "enabled": true,
-      "bucket": "phrase",
-      "keyword": "1.29대책",
-      "weight": 4,
-      "notes": "variant spelling"
+      "bucket": "frame_policy",
+      "keyword": "추진",
+      "weight": 1,
+      "notes": ""
     },
     {
       "enabled": true,
       "bucket": "frame_critical",
       "keyword": "우려",
-      "weight": 2
+      "weight": 2,
+      "notes": ""
+    },
+    {
+      "enabled": true,
+      "bucket": "frame_critical",
+      "keyword": "논란",
+      "weight": 2,
+      "notes": ""
+    },
+    {
+      "enabled": true,
+      "bucket": "frame_political",
+      "keyword": "국회",
+      "weight": 2,
+      "notes": ""
+    },
+    {
+      "enabled": true,
+      "bucket": "opinion_signal",
+      "keyword": "사설",
+      "weight": 1,
+      "notes": ""
     }
   ]
 }

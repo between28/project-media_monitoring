@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from copy import deepcopy
 import logging
 import os
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
@@ -20,6 +22,7 @@ from .briefing import generate_briefing
 from .collector import collect_articles
 from .config import get_analysis_now
 from .db import clear_run_output_tables, connect, ensure_schema, seed_config_tables
+from .defaults import clone_default_config
 from .press_release import (
     apply_manual_overrides_to_profile,
     build_config_from_press_release,
@@ -33,15 +36,22 @@ from .utils import collapse_whitespace
 
 
 APP_TITLE = "MOLIT Media Monitor"
-USAGE_GUIDE_TEXT = (
-    "보도자료 배포일 오전 10시(한국시간)를 시작점으로 하여 D+3 23:59:59까지 보도된 관련 기사를 수집합니다. "
-    "(실행 시점에서는 이 범위에서 현재까지 나온 기사만 수집)\n\n"
-    "수집 방법: RSS/sitemap 또는 Google News에서 기사 추출 후 최종 수집\n"
-    "RSS/sitemap - 각 소스의 최신 100개 기사 목록을 읽어 추출\n"
-    "Google News - 쿼리별로 최대 50건까지 읽어 추출\n"
-    "검색 쿼리 - 추출한 기사의 제목/요약에 검색 쿼리의 각 단어가 모두 포함되면 수집 후보로 판단\n"
-    "핵심 키워드 - 핵심 키워드가 입력된 경우, 제목/요약에 모든 핵심 키워드가 포함된 기사만 최종 수집"
-)
+MEDIA_SOURCE_CSV_NAME = "media_source_list.csv"
+MEDIA_SOURCE_COLUMNS = ["순번", "언론사", "매체구분", "수집방식", "기본사용", "피드주소", "비고"]
+CATEGORY_GROUP_LABELS = {
+    "wire": "통신",
+    "national_daily": "전국 종합일간지",
+    "economic_daily": "경제지",
+    "broadcast": "방송",
+    "online_media": "온라인 매체",
+    "policy_sector": "정책·전문 매체",
+    "press_release_keyword": "보도자료 파생",
+}
+SOURCE_TYPE_LABELS = {
+    "rss": "RSS",
+    "sitemap": "sitemap",
+    "google_news": "Google News",
+}
 
 
 def main() -> int:
@@ -179,16 +189,10 @@ class MediaMonitorDesktopApp(tk.Tk):
             row=0, column=4, padx=(8, 0)
         )
 
-        usage = ttk.LabelFrame(container, text="사용 안내", padding=10)
+        usage = ttk.LabelFrame(container, text="사용 안내(ver. '26.3.13)", padding=10)
         usage.grid(row=1, column=0, sticky="ew", pady=(12, 10))
         usage.columnconfigure(0, weight=1)
-        ttk.Label(
-            usage,
-            text=USAGE_GUIDE_TEXT,
-            justify="left",
-            anchor="w",
-            wraplength=1180,
-        ).grid(row=0, column=0, sticky="ew")
+        self._build_usage_guide(usage)
 
         info = ttk.LabelFrame(container, text="세션 정보", padding=10)
         info.grid(row=2, column=0, sticky="ew", pady=(0, 10))
@@ -281,6 +285,61 @@ class MediaMonitorDesktopApp(tk.Tk):
         self.preview_text = ScrolledText(preview_frame, wrap="word", height=16)
         self.preview_text.grid(row=1, column=0, sticky="nsew")
         self.preview_text.configure(state="disabled")
+
+    def _build_usage_guide(self, parent: ttk.LabelFrame) -> None:
+        wrap_length = 1180
+        ttk.Label(
+            parent,
+            text="보도자료 배포일 오전 10시(한국시간)를 시작점으로 하여 D+3 23:59:59까지 보도된 기사를 수집합니다.",
+            justify="left",
+            anchor="w",
+            wraplength=wrap_length,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            parent,
+            text="(이 범위에서 현재까지 보도된 기사 수집)",
+            justify="left",
+            anchor="w",
+            wraplength=wrap_length,
+        ).grid(row=1, column=0, sticky="w", pady=(2, 10))
+
+        method_row = ttk.Frame(parent)
+        method_row.grid(row=2, column=0, sticky="w")
+        ttk.Label(method_row, text="수집 방법: ").pack(side="left")
+        link_font = tkfont.nametofont("TkDefaultFont").copy()
+        link_font.configure(underline=True)
+        link_label = tk.Label(
+            method_row,
+            text="RSS/sitemap(미디어)",
+            fg="#0563C1",
+            cursor="hand2",
+            font=link_font,
+            background=self.cget("background"),
+        )
+        link_label.pack(side="left")
+        link_label.bind("<Button-1>", lambda _event: self.open_media_source_list())
+        ttk.Label(method_row, text=" 또는 Google News에서 기사 추출 후 최종 수집").pack(side="left")
+
+        ttk.Label(parent, text="RSS/sitemap – 각 소스의 최신 100개 기사 목록을 읽어 추출").grid(
+            row=3, column=0, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(parent, text="Google News – 쿼리별로 최대 50건까지 읽어 추출").grid(
+            row=4, column=0, sticky="w", pady=(2, 0)
+        )
+        ttk.Label(
+            parent,
+            text="검색 쿼리 – 추출한 기사의 제목/요약에 검색 쿼리의 각 단어가 모두 포함되면 수집 후보로 판단",
+            justify="left",
+            anchor="w",
+            wraplength=wrap_length,
+        ).grid(row=5, column=0, sticky="w", pady=(2, 0))
+        ttk.Label(
+            parent,
+            text="핵심 키워드 – 핵심 키워드가 입력된 경우, 제목/요약에 모든 핵심 키워드가 포함된 기사만 최종 수집",
+            justify="left",
+            anchor="w",
+            wraplength=wrap_length,
+        ).grid(row=6, column=0, sticky="w", pady=(2, 0))
 
     def _build_editor(self, parent: ttk.Frame, column: int, title: str, editable: bool = True) -> tk.Text:
         frame = ttk.LabelFrame(parent, text=title, padding=8)
@@ -521,6 +580,40 @@ class MediaMonitorDesktopApp(tk.Tk):
         if not self.last_run_result:
             return
         safe_open_path(self.last_run_result["session_summary"]["latest_briefing_path"])
+
+    def open_media_source_list(self) -> None:
+        try:
+            csv_path = self.export_media_source_list_csv()
+            safe_open_path(csv_path)
+        except Exception as error:
+            messagebox.showerror(APP_TITLE, f"미디어 리스트 CSV를 열지 못했습니다.\n\n{error}")
+            self._log(f"Failed to open media source list CSV: {error}")
+
+    def export_media_source_list_csv(self) -> Path:
+        config = clone_default_config()
+        csv_path = self.base_dir / MEDIA_SOURCE_CSV_NAME
+        rows = [
+            source
+            for source in config.get("sources", [])
+            if source.get("source_type") in {"rss", "sitemap"}
+        ]
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(MEDIA_SOURCE_COLUMNS)
+            for index, source in enumerate(rows, start=1):
+                writer.writerow(
+                    [
+                        index,
+                        source.get("source_name", ""),
+                        CATEGORY_GROUP_LABELS.get(source.get("category_group", ""), source.get("category_group", "")),
+                        SOURCE_TYPE_LABELS.get(source.get("source_type", ""), source.get("source_type", "")),
+                        "사용" if source.get("enabled", True) else "미사용",
+                        source.get("feed_url", ""),
+                        source.get("notes", ""),
+                    ]
+                )
+        return csv_path
 
     def _handle_run_complete(self, result: dict[str, Any]) -> None:
         self.last_run_result = result

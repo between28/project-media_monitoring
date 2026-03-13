@@ -1,10 +1,19 @@
-# MOLIT Media Monitoring MVP
+# MOLIT Media Monitoring
 
-국토교통부 대변인실용 무료 미디어 모니터링 자동화 MVP입니다. Google Sheets에 연결된 Google Apps Script를 기준으로, RSS 수집부터 중복 제거, 정책 관련도 점수화, 프레임 분류, 중요도 랭킹, 브리핑 초안 생성까지 한 번에 수행하도록 설계했습니다.
+국토교통부 대변인실용 무료 언론 모니터링 도구입니다. 현재 저장소의 주 실행 경로는 `Python + SQLite + Windows 데스크톱 앱`이며, 보도자료 `HWPX`를 입력받아 검색 규칙 초안을 만들고, 사용자가 이를 보완한 뒤 `D+3` 범위의 관련 기사와 브리핑 초안을 생성합니다.
 
-기준 정책 이슈:
-- `도심 주택공급 확대 및 신속화 방안`
-- 발표일: `2026-01-29`
+## 현재 운영 방식
+
+1. 보도자료 `HWPX`를 선택합니다.
+2. 앱이 `검색 쿼리` 초안을 자동 추출합니다.
+3. 사용자가 `검색 쿼리`, `핵심 키워드`를 수정합니다.
+4. `기사 검색`을 실행합니다.
+5. `sessions/<session_id>/` 아래에 기사 목록 CSV와 브리핑 Markdown이 저장됩니다.
+
+핵심 원칙:
+- 자동 추출은 `초안`입니다.
+- 최종 검색 규칙은 사람이 확정합니다.
+- 핵심 키워드가 입력된 경우, 제목/요약에 모든 핵심 키워드가 포함된 기사만 최종 수집합니다.
 
 ## 폴더 구조
 
@@ -14,29 +23,22 @@ project-media_monitoring/
 ├─ AGENTS.md
 ├─ TASK.md
 ├─ config.example.json
+├─ desktop_main.py
+├─ build_windows.bat
+├─ packaging/
+│  └─ MediaMonitor.spec
 ├─ inputs/
 │  └─ press_releases/
 │     └─ README.md
-├─ apps_script/
-│  ├─ main.gs
-│  ├─ config.gs
-│  ├─ rss.gs
-│  ├─ body_fetch.gs
-│  ├─ dedup.gs
-│  ├─ scoring.gs
-│  ├─ classify.gs
-│  ├─ ranking.gs
-│  └─ report.gs
 ├─ docs/
 │  ├─ architecture.md
-│  ├─ sheet_schema.md
 │  ├─ briefing_template.md
+│  ├─ operations.md
 │  ├─ python_pipeline.md
-│  └─ operations.md
+│  └─ windows_desktop.md
 └─ python_pipeline/
    ├─ __main__.py
    ├─ cli.py
-   ├─ defaults.py
    ├─ config.py
    ├─ db.py
    ├─ collector.py
@@ -44,157 +46,90 @@ project-media_monitoring/
    ├─ briefing.py
    ├─ press_release.py
    ├─ session_outputs.py
+   ├─ desktop_app.py
    └─ utils.py
 ```
 
-현재 구조는 Apps Script 배포를 단순하게 유지하면서도, 실제 운영 자동화는 `python_pipeline/`으로 옮길 수 있게 이중 경로를 둔 형태입니다. Apps Script는 Google Sheets 중심 운영에 맞고, Python은 SQLite 누적 저장과 재분석, 외부 스케줄러 연동에 더 적합합니다.
-
-## MVP 범위
-
-자동화되는 항목:
-- RSS, Google News RSS, 뉴스 sitemap 수집
-- 수집 직후 1차 관련도 필터링
-- 상위 후보 기사 본문 2차 수집
-- `news_raw` 저장
-- 링크, 제목, 정규화 제목, 유사 제목 기반 중복 판정
-- 정책 키워드 기반 관련도 점수 산정
-- 규칙 기반 프레임 분류
-- 중요도 점수 계산 및 후보 기사 정렬
-- 한국어 브리핑 초안 생성 및 `briefing_output` 기록
-
-사람이 최종 검토해야 하는 항목:
-- 실제 브리핑 문안 확정
-- 민감 표현 조정
-- 빠진 매체 RSS 추가
-- 기사 원문 맥락 확인
-
 ## 빠른 시작
 
-1. Google Sheet를 하나 만든 뒤 Apps Script를 연결합니다.
-2. `apps_script/*.gs` 파일 내용을 Apps Script 프로젝트에 복사합니다.
-3. `initializeProject()`를 1회 실행해 기본 시트와 설정 시트를 생성합니다.
-4. `resetConfigSourcesSheet()`를 실행해 검증된 기본 RSS/Google News 목록을 `config_sources`에 채웁니다.
-5. `config_sources`, `config_keywords`, `config_runtime`을 운영 환경에 맞게 수정합니다.
-   현재 기본 `analysis_reference_time`은 `2026-02-01T10:00:00+09:00`으로, `2026-01-29 10:00 KST` 기준 `D+3`입니다.
-6. `runCollectionOnly()`로 기사 수집을 먼저 수행합니다.
-7. `runAnalysisAndBriefing()`로 누적된 `news_raw` 기준 브리핑을 생성합니다.
-8. 필요하면 `runDailyMonitoring()`을 통합 실행용으로 사용합니다.
-9. `setupCollectionTriggers()`와 `setupBriefingTrigger()`를 실행해 분리 트리거를 생성합니다.
-10. 기존 함수명을 유지하고 싶으면 `setupDailyTrigger()` 또는 `setupSeparatedTriggers()`를 실행해도 됩니다.
+### 1. 데스크톱 앱 사용
 
-상세 절차는 [docs/operations.md](/c:/Chae/GitHub/project-media_monitoring/docs/operations.md)에 정리되어 있습니다.
+개발 PC에서는 아래 명령으로 배포본을 만들 수 있습니다.
 
-## 시스템 개요
+```powershell
+python -m pip install pyinstaller
+.\build_windows.bat
+```
 
-수집 계층:
-- Google News RSS 키워드 질의를 기본값으로 활성화
-- 직접 RSS 또는 뉴스 sitemap URL은 `config_sources`에서 추가 가능
+빌드 후 실행 파일:
 
-처리 계층:
-- `news_raw` 누적 로그 보관
-- 대표 기사만 남긴 뒤 `news_processed`에 정렬 결과 저장
-- `briefing_output`에 섹션별 브리핑 초안 기록
+```text
+dist/MediaMonitor/MediaMonitor.exe
+```
 
-권장 운영 방식:
-- `runCollectionOnly()`: 주기적 누적 수집
-- `runAnalysisAndBriefing()`: 누적된 `news_raw`를 기준으로 재분석 및 브리핑 재작성
-- `runDailyMonitoring()`: 테스트용 통합 실행
+배포 시에는 `MediaMonitor.exe` 파일 하나가 아니라 `dist/MediaMonitor/` 폴더 전체를 전달해야 합니다.
 
-Python 중심 운영 방식:
-- `python -m python_pipeline init-db`
-- `python -m python_pipeline collect --analysis-reference-time now`
-- `python -m python_pipeline analyze --analysis-reference-time now`
-- `python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md`
-- 또는 한 번에 `python -m python_pipeline run --analysis-reference-time now --output-file outputs/latest_briefing.md`
-- 보도자료 기반 자동 키워드 모드:
-  - `python -m python_pipeline derive-press-release --press-release inputs/press_releases`
-  - `python -m python_pipeline run --press-release inputs/press_releases --analysis-reference-time now`
-  - 실행 후 `sessions/<session_id>/outputs/` 아래에 `briefings/D+0~D+3_*.md`, `references/*_기사목록.csv`, `references/*_기사목록.md`가 생성됩니다.
-  - 세션별 수동 쿼리 보완 파일은 `sessions/<session_id>/config/queries.manual.ini`에 저장됩니다.
+### 2. CLI 사용
 
-기본 트리거 시간:
-- 수집: `00:15`, `03:15`, `05:00`, `12:15`, `18:15`, `21:15`
-- 브리핑: `05:30`
-
-## Python 파이프라인
-
-`python_pipeline/`은 Apps Script와 동일한 규칙 기반 로직을 SQLite 기반으로 옮긴 초안입니다.
-
-- 저장소: `SQLite`
-- 실행 방식: `CLI`
-- 수집원: `RSS`, `Google News RSS`, `sitemap`
-- 출력: DB 적재 + 텍스트 브리핑 파일
-
-기본 명령:
+SQLite 초기화:
 
 ```bash
 python -m python_pipeline init-db
-python -m python_pipeline collect --analysis-reference-time now
-python -m python_pipeline analyze --analysis-reference-time now
-python -m python_pipeline brief --analysis-reference-time now --output-file outputs/latest_briefing.md
 ```
 
-보도자료 기반 자동 키워드 추출:
+보도자료 기반 세션 생성:
 
 ```bash
 python -m python_pipeline derive-press-release --press-release inputs/press_releases
+```
+
+통합 실행:
+
+```bash
 python -m python_pipeline run --press-release inputs/press_releases --analysis-reference-time now
 ```
 
-보도자료 세션 산출물:
-- `sessions/<session_id>/config/`
-  - `queries.auto.json`
-  - `queries.manual.ini`
-  - `config.auto.json`
-  - `config.effective.json`
-- `sessions/<session_id>/data/`
-  - `session.sqlite3`
-- `sessions/<session_id>/outputs/briefings/`
-  - `D+0_YYYY-MM-DD.md`부터 `D+3_YYYY-MM-DD.md`까지 일자별 브리핑
-- `sessions/<session_id>/outputs/references/`
-  - `D+0_YYYY-MM-DD_기사목록.csv`
-  - `D+0_YYYY-MM-DD_기사목록.md`
-- 참고자료 기사표 기본 컬럼
-  - `순번`
-  - `언론사`
-  - `기사 제목`
-  - `보도일시`
+## 세션 산출물
 
-`queries.manual.ini` 입력 규칙:
-- 각 값은 한 줄에 하나씩 적습니다.
-- 쉼표(`,`)로 여러 값을 한 줄에 나열하지 않습니다.
-- 띄어쓰기는 검색에 쓰고 싶은 표현 그대로 유지합니다.
-- `disable`에는 자동 추출된 문구와 최대한 같은 값을 적습니다.
+각 실행은 `sessions/<session_id>/` 아래에 저장됩니다.
 
-부분 설정 덮어쓰기가 필요하면 루트의 `config.example.json`을 복사해 `--config`로 넘기면 됩니다.
+주요 파일:
+- `config/queries.auto.json`
+- `config/queries.manual.ini`
+- `config/config.auto.json`
+- `config/config.effective.json`
+- `outputs/briefings/D+0_YYYY-MM-DD.md` ~ `D+3_YYYY-MM-DD.md`
+- `outputs/references/D+N_YYYY-MM-DD_기사목록.csv`
+- `outputs/references/D+N_YYYY-MM-DD_기사목록.md`
 
-```bash
-python -m python_pipeline run --config config.local.json --analysis-reference-time now
-```
+기사 목록 기본 컬럼:
+- `순번`
+- `언론사`
+- `기사 제목`
+- `보도일시`
+- `기사 링크`
 
-Python 경로의 장점:
-- Google Sheets/Apps Script 편집기 없이 로컬에서 바로 개발·재실행 가능
-- `news_raw` 누적 저장 후 특정 기준 시점으로 재분석 가능
-- Windows 작업 스케줄러, GitHub Actions, 서버 cron으로 옮기기 쉬움
+## 설정 기본값
 
-세부 명령과 구조는 [docs/python_pipeline.md](/c:/Chae/GitHub/project-media_monitoring/docs/python_pipeline.md)를 보면 됩니다.
+기본 설정은 `python_pipeline/defaults.py`에 있고, `config.example.json`은 JSON 오버라이드 예시입니다.
 
-## 현재 한계
+현재 기본 방향:
+- 직접 `RSS/sitemap` 소스 유지
+- 정책별 고정 Google News 쿼리 제거
+- 프레임 분류용 일반 사전만 유지
+- 보도자료 세션 실행 시 검색 쿼리와 핵심 키워드는 세션별로 생성 또는 수동 입력
 
-- 기사 본문을 전량 수집하지 않고 RSS 제목/요약 중심으로 1차 판단합니다.
-- 일부 상위 후보 기사에 한해 본문 HTML을 추가 수집해 관련도와 프레임 분류를 보강합니다.
-- `news_raw`는 피드 원문 전체가 아니라, 1차 관련도 필터를 통과한 기사 로그입니다.
-- sitemap 소스는 제목과 발행시각은 안정적으로 들어오지만 요약이 비어 있거나 키워드 수준일 수 있습니다.
-- `Google News` 링크는 기본적으로 본문 추가 수집 대상에서 제외합니다.
-- Google News RSS는 링크가 원문 직링크가 아닌 경우가 있습니다.
-- 프레임 분류와 브리핑 문안은 규칙 기반이므로 표현이 다소 보수적입니다.
-- 일부 국내 매체는 RSS 정책이 자주 바뀌므로 초기 설정 검증이 필요합니다.
-- `config_runtime.analysis_reference_time`을 채우면 현재 시점 대신 지정 시점을 기준으로 랭킹/브리핑을 재생성할 수 있습니다.
+## 관련 문서
 
-## 향후 로드맵
+- [아키텍처](/c:/Chae/GitHub/project-media_monitoring/docs/architecture.md)
+- [운영 가이드](/c:/Chae/GitHub/project-media_monitoring/docs/operations.md)
+- [CLI 가이드](/c:/Chae/GitHub/project-media_monitoring/docs/python_pipeline.md)
+- [데스크톱 배포 가이드](/c:/Chae/GitHub/project-media_monitoring/docs/windows_desktop.md)
+- [브리핑 템플릿](/c:/Chae/GitHub/project-media_monitoring/docs/briefing_template.md)
 
-- 직접 매체 RSS 목록 고도화
-- Google Docs 자동 출력
-- Python 수집기 및 정교한 유사도 판정 추가
-- GitHub Actions 또는 외부 스케줄러 연동
-- GDELT 기반 해외 보도 확장
+## 현재 제한
+
+- `HWPX` 중심 입력입니다. `PDF-only` 입력은 아직 미지원입니다.
+- 기사 본문은 일부 상위 후보에 대해서만 추가 수집합니다.
+- Google News 결과는 경우에 따라 원문 링크가 아니라 래퍼 링크일 수 있습니다.
+- 검색 규칙 품질은 보도자료 문장 구조에 영향을 받으므로, 사용자의 최종 수정이 중요합니다.

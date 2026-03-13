@@ -111,7 +111,7 @@ class MediaMonitorDesktopApp(tk.Tk):
         super().__init__()
         self.title(APP_TITLE)
         self.geometry("1480x920")
-        self.minsize(1240, 760)
+        self.minsize(920, 640)
 
         self.base_dir = get_app_base_dir()
         self.session_root = self.base_dir / "sessions"
@@ -137,9 +137,15 @@ class MediaMonitorDesktopApp(tk.Tk):
         self.progress_value = tk.DoubleVar(value=0.0)
         self.progress_detail_var = tk.StringVar(value="진행 대기")
         self.run_started_at: float | None = None
+        self.usage_labels: list[tk.Widget] = []
+        self.editors_frame: ttk.Frame | None = None
+        self.lower_pane: ttk.PanedWindow | None = None
+        self.scroll_canvas: tk.Canvas | None = None
+        self.scrollable_body: ttk.Frame | None = None
 
         self._configure_logging()
         self._build_widgets()
+        self.bind("<Configure>", self._handle_window_resize)
         self.after(150, self._process_ui_queue)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -169,8 +175,34 @@ class MediaMonitorDesktopApp(tk.Tk):
             self.file_log_handler = existing_file_handler
 
     def _build_widgets(self) -> None:
-        container = ttk.Frame(self, padding=12)
-        container.pack(fill="both", expand=True)
+        shell = ttk.Frame(self)
+        shell.pack(fill="both", expand=True)
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(shell, highlightthickness=0)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        v_scroll = ttk.Scrollbar(shell, orient="vertical", command=canvas.yview)
+        v_scroll.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=v_scroll.set)
+
+        container = ttk.Frame(canvas, padding=12)
+        self.scroll_canvas = canvas
+        self.scrollable_body = container
+        canvas_window = canvas.create_window((0, 0), window=container, anchor="nw")
+
+        def sync_scroll_region(_event=None) -> None:
+            if self.scroll_canvas is None or self.scrollable_body is None:
+                return
+            self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+
+        def sync_canvas_width(event) -> None:
+            canvas.itemconfigure(canvas_window, width=event.width)
+
+        container.bind("<Configure>", sync_scroll_region)
+        canvas.bind("<Configure>", sync_canvas_width)
+        canvas.bind_all("<MouseWheel>", self._handle_mousewheel)
+
         container.columnconfigure(0, weight=1)
         container.rowconfigure(4, weight=1)
         container.rowconfigure(6, weight=1)
@@ -208,11 +240,7 @@ class MediaMonitorDesktopApp(tk.Tk):
         ttk.Label(info, text="안내").grid(row=1, column=2, sticky="w", padx=(16, 0), pady=(8, 0))
         ttk.Label(
             info,
-            text=(
-                "쿼리, 키워드 각 박스 내용은 수정하여 추가, 변경 또는 삭제할 수 있습니다.\n\n"
-                "자동값 복원(쿼리, 키워드)는 쿼리·키워드 최초값 복원\n"
-                "저장값 불러오기(직전 실행값)은 쿼리·키워드 직전 실행값"
-            ),
+            text="아래 쿼리, 키워드 박스는 자유롭게 수정할 수 있습니다.",
             justify="left",
         ).grid(row=1, column=3, sticky="w", pady=(8, 0))
 
@@ -221,8 +249,14 @@ class MediaMonitorDesktopApp(tk.Tk):
         editors.columnconfigure(0, weight=1)
         editors.columnconfigure(1, weight=1)
         editors.rowconfigure(0, weight=1)
+        editors.rowconfigure(1, weight=1)
+        self.editors_frame = editors
 
-        self.query_text = self._build_editor(editors, 0, "검색 쿼리")
+        self.query_text = self._build_editor(
+            editors,
+            0,
+            "검색 쿼리 (여러 줄 중 1줄 이상 충족, 각 줄은 띄어쓰기 기준 모든 단어 포함)",
+        )
         self.core_keyword_text = self._build_editor(editors, 1, "핵심 키워드(수동 입력)")
 
         action_bar = ttk.Frame(container)
@@ -266,6 +300,7 @@ class MediaMonitorDesktopApp(tk.Tk):
 
         lower = ttk.PanedWindow(container, orient="horizontal")
         lower.grid(row=6, column=0, sticky="nsew")
+        self.lower_pane = lower
 
         log_frame = ttk.LabelFrame(lower, text="실행 로그", padding=8)
         preview_frame = ttk.LabelFrame(lower, text="브리핑 미리보기", padding=8)
@@ -286,22 +321,28 @@ class MediaMonitorDesktopApp(tk.Tk):
         self.preview_text.grid(row=1, column=0, sticky="nsew")
         self.preview_text.configure(state="disabled")
 
+        self.after(0, self._apply_responsive_layout)
+
     def _build_usage_guide(self, parent: ttk.LabelFrame) -> None:
         wrap_length = 1180
-        ttk.Label(
+        label = ttk.Label(
             parent,
             text="보도자료 배포일 오전 10시(한국시간)를 시작점으로 하여 D+3 23:59:59까지 보도된 기사를 수집합니다.",
             justify="left",
             anchor="w",
             wraplength=wrap_length,
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Label(
+        )
+        label.grid(row=0, column=0, sticky="w")
+        self.usage_labels.append(label)
+        label = ttk.Label(
             parent,
             text="(이 범위에서 현재까지 보도된 기사 수집)",
             justify="left",
             anchor="w",
             wraplength=wrap_length,
-        ).grid(row=1, column=0, sticky="w", pady=(2, 10))
+        )
+        label.grid(row=1, column=0, sticky="w", pady=(2, 10))
+        self.usage_labels.append(label)
 
         method_row = ttk.Frame(parent)
         method_row.grid(row=2, column=0, sticky="w")
@@ -320,26 +361,30 @@ class MediaMonitorDesktopApp(tk.Tk):
         link_label.bind("<Button-1>", lambda _event: self.open_media_source_list())
         ttk.Label(method_row, text=" 또는 Google News에서 기사 추출 후 최종 수집").pack(side="left")
 
-        ttk.Label(parent, text="RSS/sitemap – 각 소스의 최신 100개 기사 목록을 읽어 추출").grid(
-            row=3, column=0, sticky="w", pady=(6, 0)
-        )
-        ttk.Label(parent, text="Google News – 쿼리별로 최대 50건까지 읽어 추출").grid(
-            row=4, column=0, sticky="w", pady=(2, 0)
-        )
-        ttk.Label(
+        label = ttk.Label(parent, text="RSS/sitemap – 각 소스의 최신 100개 기사 목록을 읽어 추출")
+        label.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.usage_labels.append(label)
+        label = ttk.Label(parent, text="Google News – 쿼리별로 최대 50건까지 읽어 추출")
+        label.grid(row=4, column=0, sticky="w", pady=(2, 0))
+        self.usage_labels.append(label)
+        label = ttk.Label(
             parent,
             text="검색 쿼리 – 추출한 기사의 제목/요약에 검색 쿼리의 각 단어가 모두 포함되면 수집 후보로 판단",
             justify="left",
             anchor="w",
             wraplength=wrap_length,
-        ).grid(row=5, column=0, sticky="w", pady=(2, 0))
-        ttk.Label(
+        )
+        label.grid(row=5, column=0, sticky="w", pady=(2, 0))
+        self.usage_labels.append(label)
+        label = ttk.Label(
             parent,
             text="핵심 키워드 – 핵심 키워드가 입력된 경우, 제목/요약에 모든 핵심 키워드가 포함된 기사만 최종 수집",
             justify="left",
             anchor="w",
             wraplength=wrap_length,
-        ).grid(row=6, column=0, sticky="w", pady=(2, 0))
+        )
+        label.grid(row=6, column=0, sticky="w", pady=(2, 0))
+        self.usage_labels.append(label)
 
     def _build_editor(self, parent: ttk.Frame, column: int, title: str, editable: bool = True) -> tk.Text:
         frame = ttk.LabelFrame(parent, text=title, padding=8)
@@ -356,6 +401,45 @@ class MediaMonitorDesktopApp(tk.Tk):
         if not editable:
             editor.configure(state="disabled")
         return editor
+
+    def _handle_mousewheel(self, event) -> None:
+        if self.scroll_canvas is None:
+            return
+        self.scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _handle_window_resize(self, _event=None) -> None:
+        self.after_idle(self._apply_responsive_layout)
+
+    def _apply_responsive_layout(self) -> None:
+        width = self.winfo_width()
+        wrap_length = max(680, width - 220)
+        for label in self.usage_labels:
+            try:
+                label.configure(wraplength=wrap_length)
+            except tk.TclError:
+                continue
+
+        if self.editors_frame is None:
+            return
+
+        narrow_layout = width < 1220
+        query_frame = self.query_text.master
+        core_frame = self.core_keyword_text.master
+
+        if narrow_layout:
+            self.editors_frame.columnconfigure(0, weight=1)
+            self.editors_frame.columnconfigure(1, weight=0)
+            query_frame.grid_configure(row=0, column=0, padx=(0, 0), pady=(0, 8))
+            core_frame.grid_configure(row=1, column=0, padx=(0, 0), pady=(0, 0))
+            if self.lower_pane is not None:
+                self.lower_pane.configure(orient="vertical")
+        else:
+            self.editors_frame.columnconfigure(0, weight=1)
+            self.editors_frame.columnconfigure(1, weight=1)
+            query_frame.grid_configure(row=0, column=0, padx=(0, 0), pady=(0, 0))
+            core_frame.grid_configure(row=0, column=1, padx=(8, 0), pady=(0, 0))
+            if self.lower_pane is not None:
+                self.lower_pane.configure(orient="horizontal")
 
     def choose_press_release(self) -> None:
         initial_dir = self.inputs_dir if self.inputs_dir.exists() else self.base_dir

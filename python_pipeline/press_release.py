@@ -663,6 +663,95 @@ def derive_topic_keywords(phrases: list[str], title: str) -> list[str]:
     return ordered
 
 
+QUERY_SEPARATOR_VARIANTS = ("·", "-", "~", " ")
+QUERY_SPLIT_SUFFIXES = (
+    "고속선",
+    "경전철",
+    "광역철도",
+    "위원회",
+    "복지부",
+    "의료기관",
+    "바이오헬스",
+    "도시문제",
+    "도시",
+    "문제",
+    "사업",
+    "계획",
+    "지원",
+    "대응",
+    "대책",
+    "훈련",
+    "점검",
+    "개통",
+    "발생",
+    "복구",
+)
+
+
+def expand_query_variants(query: str) -> list[str]:
+    base_query = collapse_whitespace(query)
+    if not base_query:
+        return []
+
+    queries = [base_query]
+    separator_expansions = [base_query]
+
+    if any(separator in base_query for separator in ("·", "-", "~")):
+        chunks = [chunk.strip() for chunk in re.split(r"[·\-~]+", base_query) if chunk.strip()]
+        if len(chunks) >= 2:
+            separator_expansions = []
+            for separator in QUERY_SEPARATOR_VARIANTS:
+                separator_expansions.append(separator.join(chunks) if separator != " " else " ".join(chunks))
+
+    spacing_expansions: list[str] = []
+    for candidate in separator_expansions:
+        spacing_expansions.append(candidate)
+        joined_candidate = candidate.replace(" ", "")
+        if joined_candidate != candidate:
+            spacing_expansions.append(joined_candidate)
+        split_candidate = split_compound_query_terms(candidate)
+        if split_candidate != candidate:
+            spacing_expansions.append(split_candidate)
+
+    seen = set()
+    expanded_queries = []
+    for candidate in queries + separator_expansions + spacing_expansions:
+        cleaned_candidate = collapse_whitespace(candidate)
+        normalized = normalize_text_lower(cleaned_candidate)
+        if not cleaned_candidate or normalized in seen:
+            continue
+        seen.add(normalized)
+        expanded_queries.append(cleaned_candidate)
+    return expanded_queries[:8]
+
+
+def split_compound_query_terms(query: str) -> str:
+    split_tokens = []
+    changed = False
+    for token in collapse_whitespace(query).split(" "):
+        replacement = split_query_token(token)
+        if replacement != token:
+            changed = True
+        split_tokens.append(replacement)
+    if not changed:
+        return collapse_whitespace(query)
+    return collapse_whitespace(" ".join(split_tokens))
+
+
+def split_query_token(token: str) -> str:
+    cleaned_token = collapse_whitespace(token)
+    if not cleaned_token or " " in cleaned_token:
+        return cleaned_token
+    for suffix in sorted(QUERY_SPLIT_SUFFIXES, key=len, reverse=True):
+        if not cleaned_token.endswith(suffix):
+            continue
+        prefix = cleaned_token[: -len(suffix)]
+        if len(prefix) < 2:
+            continue
+        return f"{prefix} {suffix}"
+    return cleaned_token
+
+
 def build_google_queries(title: str, phrases: list[str], topic_keywords: list[str]) -> list[str]:
     queries = []
     anchor = next(
@@ -716,17 +805,18 @@ def build_google_queries(title: str, phrases: list[str], topic_keywords: list[st
             if query not in queries:
                 queries.append(query)
 
-    cleaned_queries = []
+    expanded_queries = []
     seen = set()
     for query in queries:
-        normalized = normalize_text_lower(query)
-        if not normalized or normalized in seen:
-            continue
-        if len(query) < 4:
-            continue
-        seen.add(normalized)
-        cleaned_queries.append(query)
-    return cleaned_queries[:6]
+        for expanded_query in expand_query_variants(query):
+            normalized = normalize_text_lower(expanded_query)
+            if not normalized or normalized in seen:
+                continue
+            if len(expanded_query) < 4:
+                continue
+            seen.add(normalized)
+            expanded_queries.append(expanded_query)
+    return expanded_queries[:12]
 
 
 def extract_named_entities(lines: list[str]) -> list[str]:

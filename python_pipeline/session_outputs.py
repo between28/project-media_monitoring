@@ -112,6 +112,9 @@ def build_session_daily_outputs(
 
     if cancel_callback:
         cancel_callback()
+
+    resolved_latest_reference_csv = latest_reference_csv
+
     if latest_briefing_path:
         Path(session_paths["latest_briefing"]).write_text(Path(latest_briefing_path).read_text(encoding="utf-8"), encoding="utf-8")
     if latest_reference_markdown:
@@ -120,7 +123,10 @@ def build_session_daily_outputs(
             encoding="utf-8",
         )
     if latest_reference_csv:
-        Path(session_paths["latest_reference_csv"]).write_text(Path(latest_reference_csv).read_text(encoding="utf-8-sig"), encoding="utf-8-sig")
+        resolved_latest_reference_csv = write_latest_reference_csv_with_fallback(
+            Path(latest_reference_csv),
+            Path(session_paths["latest_reference_csv"]),
+        )
 
     summary_path = Path(session_paths["daily_outputs_json"])
     summary_path.write_text(
@@ -139,7 +145,7 @@ def build_session_daily_outputs(
     return {
         "generated_days": generated_days,
         "latest_briefing_path": latest_briefing_path,
-        "latest_reference_csv": latest_reference_csv,
+        "latest_reference_csv": resolved_latest_reference_csv,
         "latest_reference_markdown": latest_reference_markdown,
         "summary_path": str(summary_path),
     }
@@ -220,3 +226,15 @@ def write_reference_csv(path: Path, rows: list[dict]) -> None:
         writer = csv.DictWriter(handle, fieldnames=["순번", "언론사", "기사 제목", "보도일시", "기사 링크"])
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_latest_reference_csv_with_fallback(source_path: Path, preferred_target_path: Path) -> str:
+    content = source_path.read_text(encoding="utf-8-sig")
+    try:
+        preferred_target_path.write_text(content, encoding="utf-8-sig")
+        return str(preferred_target_path)
+    except PermissionError:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fallback_path = preferred_target_path.with_name(f"{preferred_target_path.stem}_{timestamp}{preferred_target_path.suffix}")
+        fallback_path.write_text(content, encoding="utf-8-sig")
+        return str(fallback_path)

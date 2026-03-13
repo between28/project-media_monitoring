@@ -96,31 +96,68 @@ def get_policy_hit_stats_from_keywords(keywords: list[str], config: dict) -> dic
     return {"totalHits": total_hits, "phraseHits": phrase_hits}
 
 
-def is_high_relevance_record(record: dict, config: dict) -> bool:
-    if float(record.get("policy_score", 0) or 0) < float(config.get("scoring", {}).get("highRelevanceThreshold", 8)):
+def build_collection_preview_text(record: dict, include_body: bool = True) -> str:
+    body_text = limit_text(record.get("body_text", ""), 1500) if include_body else ""
+    return normalize_text_lower(f"{record.get('title', '')} {record.get('summary', '')} {body_text}")
+
+
+def query_matches_preview_text(query: str, preview_text: str) -> bool:
+    normalized_query = normalize_text_lower(query)
+    if not normalized_query:
         return False
-    hit_stats = get_policy_hit_stats_from_keywords(split_keywords(record.get("keyword", "")), config)
-    if hit_stats["phraseHits"] > 0:
+    tokens = [token for token in normalized_query.split(" ") if token]
+    if not tokens:
+        return False
+    return all(token in preview_text for token in tokens)
+
+
+def count_record_query_matches(record: dict, config: dict, include_body: bool = True) -> int:
+    preview_text = build_collection_preview_text(record, include_body=include_body)
+    match_count = 0
+    for rule in get_keyword_rules_by_buckets(config, ["phrase"]):
+        if not rule.get("enabled", True):
+            continue
+        query = collapse_whitespace(rule.get("keyword", ""))
+        if not query:
+            continue
+        if query_matches_preview_text(query, preview_text):
+            match_count += 1
+    return match_count
+
+
+def has_record_core_keywords(record: dict, config: dict, include_body: bool = True) -> bool:
+    preview_text = build_collection_preview_text(record, include_body=include_body)
+    core_keywords = [
+        collapse_whitespace(keyword)
+        for keyword in config.get("collection", {}).get("rawCoreKeywords", [])
+        if collapse_whitespace(keyword)
+    ]
+    if not core_keywords:
         return True
-    return hit_stats["totalHits"] >= int(config.get("scoring", {}).get("minimumKeywordHits", 2))
+    return all(query_matches_preview_text(keyword, preview_text) for keyword in core_keywords)
+
+
+def matches_collection_rules(record: dict, config: dict, include_body: bool = True) -> bool:
+    if not bool(config.get("collection", {}).get("requireQueryMatch", False)):
+        if float(record.get("policy_score", 0) or 0) < float(config.get("scoring", {}).get("highRelevanceThreshold", 8)):
+            return False
+        hit_stats = get_policy_hit_stats_from_keywords(split_keywords(record.get("keyword", "")), config)
+        if hit_stats["phraseHits"] > 0:
+            return True
+        return hit_stats["totalHits"] >= int(config.get("scoring", {}).get("minimumKeywordHits", 2))
+
+    query_match_count = count_record_query_matches(record, config, include_body=include_body)
+    if query_match_count < int(config.get("collection", {}).get("rawMinimumQueryHits", 1)):
+        return False
+    return has_record_core_keywords(record, config, include_body=include_body)
+
+
+def is_high_relevance_record(record: dict, config: dict) -> bool:
+    return matches_collection_rules(record, config, include_body=True)
 
 
 def is_reference_relevant_record(record: dict, config: dict) -> bool:
-    if float(record.get("policy_score", 0) or 0) <= 0:
-        return False
-    if is_high_relevance_record(record, config):
-        return True
-
-    anchor_keywords = get_reference_anchor_keywords(config)
-    if not anchor_keywords:
-        return False
-
-    matched_keywords = {
-        normalize_text_lower(keyword)
-        for keyword in split_keywords(record.get("keyword", ""))
-        if collapse_whitespace(keyword)
-    }
-    return bool(matched_keywords & anchor_keywords)
+    return matches_collection_rules(record, config, include_body=True)
 
 
 def is_output_eligible_record(record: dict) -> bool:
@@ -441,6 +478,8 @@ def is_body_fetch_candidate(record: dict, config: dict, lookback_start, analysis
         config.get("collection", {}).get("fetchBodyFromGoogleNews", False)
     ):
         return False
+    if bool(config.get("collection", {}).get("requireQueryMatch", False)):
+        return matches_collection_rules(record, config, include_body=False)
     return float(record.get("policy_score", 0) or 0) >= float(config.get("collection", {}).get("bodyFetchMinimumPolicyScore", 4))
 
 
@@ -570,7 +609,8 @@ def rank_articles(raw_records: list[dict], config: dict) -> list[dict]:
 
         theme_key = derive_theme_key(record, config)
         theme_stat = theme_stats.get(theme_key, {"count": 1, "sourceCount": 1})
-        score = float(record.get("policy_score", 0) or 0)
+        query_match_count = count_record_query_matches(record, config, include_body=True)
+        score = query_match_count * 5
         score += get_source_priority(record.get("source_name", ""), config)
         score += get_freshness_boost(record, analysis_now, config["timezone"])
 
@@ -591,7 +631,7 @@ def rank_articles(raw_records: list[dict], config: dict) -> list[dict]:
         for record in raw_records
         if is_representative_record(record)
         and is_output_eligible_record(record)
-        and is_high_relevance_record(record, config)
+        and matches_collection_rules(record, config, include_body=True)
         and is_within_lookback(record, lookback_start, analysis_now, config["timezone"])
     ]
     processed.sort(key=lambda record: compare_processed_record_key(record, config), reverse=True)

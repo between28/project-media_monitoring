@@ -131,6 +131,7 @@ DEFAULT_CONFIG = {
         "서울Pn": 1,
         "데일리머니": 1,
         "프레스뉴스": 1,
+        "메가경제": 1,
     },
     "sources": [
         {
@@ -627,6 +628,16 @@ DEFAULT_CONFIG = {
             "feed_url": "https://www.pressna.com/sitemap.xml",
             "keyword": "",
             "notes": "updated on 2026-03-12: verified working news sitemap",
+        },
+        {
+            "enabled": True,
+            "source_name": "메가경제",
+            "source_type": "sitemap",
+            "category_group": "policy_sector",
+            "feed_url": "https://www.megaeconomy.co.kr/sitemap.xml",
+            "max_items": 80,
+            "keyword": "",
+            "notes": "updated on 2026-03-13: verified working news sitemap; max_items raised to 80 because target article was at position 38",
         },
         {
             "enabled": False,

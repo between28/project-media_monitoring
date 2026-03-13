@@ -51,8 +51,9 @@ def fetch_url_text(url: str, timeout: int = 20) -> str:
         return data.decode("utf-8", errors="replace")
 
 
-def collect_articles(connection, config: dict, source_limit: int | None = None) -> dict:
+def collect_articles(connection, config: dict, source_limit: int | None = None, progress_callback=None, cancel_callback=None) -> dict:
     policy_rules = get_keyword_rules_by_buckets(config, ["topic", "phrase"])
+    query_rules = get_keyword_rules_by_buckets(config, ["phrase"])
     analysis_now = get_analysis_now(config)
     lookback_start = get_lookback_start(config, analysis_now)
     collected_time = format_datetime(datetime.now(ZoneInfo(config["timezone"])), config["timezone"])
@@ -60,10 +61,15 @@ def collect_articles(connection, config: dict, source_limit: int | None = None) 
     if source_limit:
         sources = sources[:source_limit]
 
+    if progress_callback:
+        progress_callback(0, len(sources), "")
+
     prepared_articles: list[dict] = []
     per_source_stats: list[dict] = []
 
-    for source in sources:
+    for index, source in enumerate(sources, start=1):
+        if cancel_callback:
+            cancel_callback()
         feed_url = resolve_feed_url(source)
         if not feed_url:
             continue
@@ -80,7 +86,9 @@ def collect_articles(connection, config: dict, source_limit: int | None = None) 
 
             items = parse_source_items(response_text, source, max_items, config)
             for item in items:
-                if not should_collect_item(item, source, policy_rules, config):
+                if cancel_callback:
+                    cancel_callback()
+                if not should_collect_item(item, source, policy_rules, query_rules, config):
                     dropped_by_relevance += 1
                     continue
                 if not should_keep_item_in_collection_window(item, collected_time, lookback_start, analysis_now, config):
@@ -131,6 +139,11 @@ def collect_articles(connection, config: dict, source_limit: int | None = None) 
                 "dropped_by_date": dropped_by_date,
             }
         )
+        if progress_callback:
+            progress_callback(index, len(sources), source["source_name"])
+
+    if cancel_callback:
+        cancel_callback()
 
     inserted_count = insert_raw_articles(connection, prepared_articles)
     return {
@@ -141,32 +154,72 @@ def collect_articles(connection, config: dict, source_limit: int | None = None) 
 
 
 def get_max_items_for_source(source: dict, config: dict) -> int:
+    if source.get("max_items") is not None:
+        return int(source["max_items"])
+    if source.get("maxItems") is not None:
+        return int(source["maxItems"])
     if source.get("source_type") == "google_news":
         collection = config.get("collection", {})
         return int(collection.get("maxItemsPerGoogleNewsFeed", collection.get("maxItemsPerFeed", 10)))
     return int(config.get("collection", {}).get("maxItemsPerFeed", 10))
 
 
-def should_collect_item(item: dict, source: dict, policy_rules: list[dict], config: dict) -> bool:
+def should_collect_item(item: dict, source: dict, policy_rules: list[dict], query_rules: list[dict], config: dict) -> bool:
     preview_record = {
         "title": item.get("title", ""),
         "summary": item.get("summary", ""),
         "body_text": "",
         "source_name": source["source_name"],
     }
+    preview_text = normalize_text_lower(f"{preview_record['title']} {preview_record['summary']}")
     score_result = calculate_policy_score(preview_record, policy_rules, config)
     hit_stats = get_policy_hit_stats_from_keywords(score_result["keywords"], config)
+    query_match_count = count_query_matches(preview_text, query_rules)
+
+    if config.get("collection", {}).get("requireQueryMatch", False):
+        if query_match_count < int(config.get("collection", {}).get("rawMinimumQueryHits", 1)):
+            return False
+        return has_collection_core_keyword(preview_text, config)
 
     if hit_stats["phraseHits"] > 0:
         return True
     if hit_stats["totalHits"] < int(config.get("collection", {}).get("rawMinimumKeywordHits", 2)):
         return False
-    return has_collection_core_keyword(score_result["keywords"], config)
+    return has_collection_core_keyword(preview_text, config)
 
 
-def has_collection_core_keyword(keywords: list[str], config: dict) -> bool:
-    lookup = {normalize_text_lower(keyword): True for keyword in config.get("collection", {}).get("rawCoreKeywords", [])}
-    return any(lookup.get(normalize_text_lower(keyword), False) for keyword in keywords)
+def count_query_matches(preview_text: str, query_rules: list[dict]) -> int:
+    match_count = 0
+    for rule in query_rules:
+        if not rule.get("enabled", True):
+            continue
+        query = collapse_whitespace(rule.get("keyword", ""))
+        if not query:
+            continue
+        if query_matches_preview_text(query, preview_text):
+            match_count += 1
+    return match_count
+
+
+def query_matches_preview_text(query: str, preview_text: str) -> bool:
+    normalized_query = normalize_text_lower(query)
+    if not normalized_query:
+        return False
+    tokens = [token for token in normalized_query.split(" ") if token]
+    if not tokens:
+        return False
+    return all(token in preview_text for token in tokens)
+
+
+def has_collection_core_keyword(preview_text: str, config: dict) -> bool:
+    core_keywords = [
+        collapse_whitespace(keyword)
+        for keyword in config.get("collection", {}).get("rawCoreKeywords", [])
+        if collapse_whitespace(keyword)
+    ]
+    if not core_keywords:
+        return True
+    return all(query_matches_preview_text(keyword, preview_text) for keyword in core_keywords)
 
 
 def should_keep_item_in_collection_window(item: dict, collected_time: str, lookback_start, analysis_now, config: dict) -> bool:

@@ -6,8 +6,14 @@ from copy import deepcopy
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from .analysis import build_processed_snapshot, is_representative_record, is_within_lookback
-from .briefing import build_briefing_overview_counts, build_briefing_package
+from .analysis import (
+    build_processed_snapshot,
+    is_output_eligible_record,
+    is_reference_relevant_record,
+    is_representative_record,
+    is_within_lookback,
+)
+from .briefing import build_briefing_overview_counts, build_briefing_package, build_reference_candidates
 from .config import get_record_time
 from .db import fetch_raw_articles
 from .press_release import build_press_session_paths, save_press_session_metadata
@@ -20,7 +26,15 @@ def initialize_press_session(profile: dict, config: dict, session_root: str | Pa
     return session_paths
 
 
-def build_session_daily_outputs(connection, profile: dict, config: dict, session_paths: dict[str, str], analysis_now: datetime) -> dict:
+def build_session_daily_outputs(
+    connection,
+    profile: dict,
+    config: dict,
+    session_paths: dict[str, str],
+    analysis_now: datetime,
+    progress_callback=None,
+    cancel_callback=None,
+) -> dict:
     raw_records = fetch_raw_articles(connection)
     if not raw_records:
         return {"generated_days": [], "latest_briefing_path": "", "latest_reference_csv": "", "latest_reference_markdown": ""}
@@ -37,19 +51,32 @@ def build_session_daily_outputs(connection, profile: dict, config: dict, session
     latest_reference_csv = ""
     latest_reference_markdown = ""
 
+    total_days = max_offset + 1
+    if progress_callback:
+        progress_callback(0, total_days, "")
+
     for offset in range(0, max_offset + 1):
+        if cancel_callback:
+            cancel_callback()
         snapshot_time = build_daily_snapshot_time(release_time, offset, max_end_time)
         snapshot_config = deepcopy(config)
         snapshot_config.setdefault("analysis", {})["referenceTime"] = snapshot_time.isoformat()
         snapshot_config["analysis"]["windowStartTime"] = release_time.isoformat()
 
         snapshot_raw, processed_records = build_processed_snapshot(raw_records, snapshot_config, fetch_bodies=False)
-        overview_counts = build_briefing_overview_counts(snapshot_raw, snapshot_config, snapshot_time)
+        reference_records = build_reference_candidates(snapshot_raw, snapshot_config, snapshot_time)
+        overview_counts = build_briefing_overview_counts(
+            snapshot_raw,
+            snapshot_config,
+            snapshot_time,
+            reference_records=reference_records,
+        )
         briefing_rows, briefing_text = build_briefing_package(
             processed_records,
             snapshot_config,
             snapshot_time,
             overview_counts=overview_counts,
+            reference_records=reference_records,
         )
         reference_rows = build_reference_article_rows(snapshot_raw, snapshot_config)
 
@@ -80,7 +107,11 @@ def build_session_daily_outputs(connection, profile: dict, config: dict, session
                 "briefing_section_count": len(briefing_rows),
             }
         )
+        if progress_callback:
+            progress_callback(offset + 1, total_days, day_label)
 
+    if cancel_callback:
+        cancel_callback()
     if latest_briefing_path:
         Path(session_paths["latest_briefing"]).write_text(Path(latest_briefing_path).read_text(encoding="utf-8"), encoding="utf-8")
     if latest_reference_markdown:
@@ -130,9 +161,11 @@ def build_reference_article_rows(raw_records: list[dict], config: dict) -> list[
     for record in raw_records:
         if not is_representative_record(record):
             continue
+        if not is_output_eligible_record(record):
+            continue
         if not is_within_lookback(record, lookback_start, analysis_now, config["timezone"]):
             continue
-        if float(record.get("policy_score", 0) or 0) <= 0:
+        if not is_reference_relevant_record(record, config):
             continue
         candidates.append(record)
 
@@ -153,6 +186,7 @@ def build_reference_article_rows(raw_records: list[dict], config: dict) -> list[
                 "언론사": infer_display_source_name(record.get("source_name", ""), record.get("title", ""), record.get("summary", "")),
                 "기사 제목": clean_display_title(record.get("title", ""), record.get("source_name", ""), record.get("summary", "")),
                 "보도일시": format_readable_datetime(timestamp, config["timezone"]) if timestamp else "",
+                "기사 링크": record.get("link", "") or "",
             }
         )
     return rows
@@ -166,12 +200,13 @@ def render_reference_markdown(rows: list[dict], profile: dict, snapshot_time: da
         f"- 기준 시점: {snapshot_time.strftime('%Y-%m-%d %H:%M:%S %Z')}",
         f"- 기사 수: {len(rows)}",
         "",
-        "| 순번 | 언론사 | 기사 제목 | 보도일시 |",
-        "| --- | --- | --- | --- |",
+        "| 순번 | 언론사 | 기사 제목 | 보도일시 | 기사 링크 |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for row in rows:
+        link_cell = f"<{row['기사 링크']}>" if row.get("기사 링크") else ""
         lines.append(
-            f"| {row['순번']} | {escape_markdown(row['언론사'])} | {escape_markdown(row['기사 제목'])} | {row['보도일시']} |"
+            f"| {row['순번']} | {escape_markdown(row['언론사'])} | {escape_markdown(row['기사 제목'])} | {row['보도일시']} | {link_cell} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -182,6 +217,6 @@ def escape_markdown(value: str) -> str:
 
 def write_reference_csv(path: Path, rows: list[dict]) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["순번", "언론사", "기사 제목", "보도일시"])
+        writer = csv.DictWriter(handle, fieldnames=["순번", "언론사", "기사 제목", "보도일시", "기사 링크"])
         writer.writeheader()
         writer.writerows(rows)

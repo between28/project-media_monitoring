@@ -1,17 +1,31 @@
 from __future__ import annotations
 
-from .analysis import build_theme_label_from_key, derive_theme_key, is_representative_record, is_within_lookback
+from .analysis import (
+    build_theme_label_from_key,
+    derive_theme_key,
+    is_output_eligible_record,
+    is_reference_relevant_record,
+    is_representative_record,
+    is_within_lookback,
+)
 from .config import get_analysis_now, get_lookback_start
 from .db import fetch_processed_articles, fetch_raw_articles, replace_briefing_sections
-from .utils import clean_display_title, format_datetime, format_readable_datetime, infer_display_source_name, limit_text
+from .utils import clean_display_title, format_datetime, infer_display_source_name, limit_text
 
 
 def generate_briefing(connection, config: dict, output_path: str | None = None) -> str:
     candidates = fetch_processed_articles(connection)
     raw_records = fetch_raw_articles(connection)
     analysis_now = get_analysis_now(config)
-    overview_counts = build_briefing_overview_counts(raw_records, config, analysis_now)
-    rows, full_text = build_briefing_package(candidates, config, analysis_now, overview_counts=overview_counts)
+    reference_records = build_reference_candidates(raw_records, config, analysis_now)
+    overview_counts = build_briefing_overview_counts(raw_records, config, analysis_now, reference_records=reference_records)
+    rows, full_text = build_briefing_package(
+        candidates,
+        config,
+        analysis_now,
+        overview_counts=overview_counts,
+        reference_records=reference_records,
+    )
     replace_briefing_sections(connection, rows)
 
     if output_path:
@@ -25,33 +39,16 @@ def build_briefing_package(
     config: dict,
     analysis_now,
     overview_counts: dict | None = None,
+    reference_records: list[dict] | None = None,
 ) -> tuple[list[dict], str]:
     generated_time = format_datetime(analysis_now, config["timezone"])
-
-    if not candidates:
-        rows = [
-            {
-                "section_order": 1,
-                "generated_time": generated_time,
-                "topic_name": config["topic"]["name"],
-                "section_name": "전체본",
-                "content": "선별된 고관련 기사가 없어 브리핑 초안을 생성하지 않았습니다. RSS 설정과 키워드 기준을 확인하십시오.",
-                "supporting_articles": "",
-                "notes": "no_candidates=true",
-            }
-        ]
-        return rows, "No briefing candidates."
-
     top_candidates = candidates[: int(config.get("collection", {}).get("maxBriefingArticles", 12))]
-    frame_counts = count_frames(candidates)
-    theme_groups = build_theme_groups_for_briefing(top_candidates, config)
+    media_records = list(reference_records or [])
+    theme_groups = build_theme_groups_for_briefing(media_records, config)
 
     section_payloads = [
-        ("총평", build_overall_summary(candidates, frame_counts, theme_groups, config, analysis_now, overview_counts)),
-        ("주요 보도 내용", build_main_coverage_section(theme_groups)),
-        ("주요 논점", build_issue_section(frame_counts, theme_groups)),
-        ("영향력 기사", build_impact_section(top_candidates)),
-        ("대응 참고", build_response_points(frame_counts, theme_groups)),
+        ("우리부 보도자료", build_press_release_summary_section(config)),
+        ("언론보도 현황", build_media_status_section(media_records, top_candidates, analysis_now)),
     ]
 
     rows = []
@@ -64,7 +61,7 @@ def build_briefing_package(
                 "section_name": section_name,
                 "content": content,
                 "supporting_articles": build_supporting_articles(top_candidates),
-                "notes": f"frame_counts={serialize_frame_counts(frame_counts)}",
+                "notes": build_briefing_notes(overview_counts, theme_groups),
             }
         )
 
@@ -77,92 +74,41 @@ def build_briefing_package(
             "section_name": "전체본",
             "content": full_text,
             "supporting_articles": build_supporting_articles(top_candidates),
-            "notes": f"frame_counts={serialize_frame_counts(frame_counts)}",
+            "notes": build_briefing_notes(overview_counts, theme_groups),
         }
     )
     return rows, full_text
 
 
-def build_overall_summary(
-    candidates: list[dict],
-    frame_counts: dict,
-    theme_groups: list[dict],
-    config: dict,
-    analysis_now,
-    overview_counts: dict | None = None,
-) -> str:
-    article_count = (overview_counts or {}).get("article_count", len(candidates))
-    source_count = (overview_counts or {}).get("source_count", get_unique_source_count(candidates))
-    dominant_frames = get_dominant_frames(frame_counts)
-    dominant_themes = [group["label"] for group in theme_groups[:2]]
-    lines = []
-    analysis_label = format_readable_datetime(analysis_now, config["timezone"])
-
-    lines.append(
-        f"기준 시점({analysis_label}) 기준, {config['topic']['name']} 관련 기사 {article_count}건이 확인되었고 이를 보도한 언론사는 {source_count}곳이었습니다."
-    )
-    if len(dominant_frames) > 1:
-        lines.append(f"보도 흐름은 {dominant_frames[0]} 중심이며 {dominant_frames[1]} 성격 보도가 함께 관찰되었습니다.")
-    else:
-        lines.append(f"보도 흐름은 {(dominant_frames[0] if dominant_frames else '정책 설명')} 중심으로 형성되었습니다.")
-
-    if dominant_themes:
-        lines.append(f"반복적으로 등장한 주제는 {', '.join(dominant_themes)}입니다.")
-    else:
-        lines.append("주요 보도는 정책 전반의 공급 계획과 후속 일정 설명에 집중되었습니다.")
-
-    return "\n".join(lines)
-
-
-def build_main_coverage_section(theme_groups: list[dict]) -> str:
-    if not theme_groups:
-        return "- 정책 전반 기사 위주로 분포되어 별도 테마 군집이 뚜렷하지 않았습니다."
-    return "\n".join(
-        (
-            f"- {group['label']}: {group['sourceSummary']} 등 {group['count']}건. "
-            f"대표 기사: [{get_record_source_label(group['lead'])}] {limit_text(get_record_display_title(group['lead']), 90)}"
-        )
-        for group in theme_groups
-    )
-
-
-def build_issue_section(frame_counts: dict, theme_groups: list[dict]) -> str:
-    lines = []
-    if frame_counts.get("비판 / 우려", 0) > 0:
-        lines.append("- 정책 실행 가능성, 추진 속도, 현장 수용성과 관련한 우려 신호가 반복적으로 나타났습니다.")
-    if frame_counts.get("정치 / 기관 이슈", 0) > 0:
-        lines.append("- 관계기관 협의, 지자체 조율, 정치권 반응 등 제도 외부 변수에 대한 관심이 확인되었습니다.")
-    if frame_counts.get("긍정 평가", 0) > 0:
-        lines.append("- 일부 보도는 정책 효과와 기대 편익을 긍정적으로 평가했습니다.")
-    for group in theme_groups[:2]:
-        lines.append(f"- {group['label']}에서 세부 실행계획과 후속 일정 관리가 핵심 논점으로 반복되었습니다.")
-    if not lines:
-        lines.append("- 뚜렷한 비판 프레임보다 정책 설명과 기본 사실 전달 보도가 우세했습니다.")
-    return "\n".join(lines[:5])
-
-
-def build_impact_section(candidates: list[dict]) -> str:
-    return "\n".join(
-        (
-            f"{index}. [{get_record_source_label(record)}] {get_record_display_title(record)} "
-            f"(중요도 {record['importance_score']}, 프레임 {record.get('frame_category') or '기타'})"
-        )
-        for index, record in enumerate(candidates[:5], start=1)
-    )
-
-
-def build_response_points(frame_counts: dict, theme_groups: list[dict]) -> str:
-    lines = [
-        "- 정책 핵심 내용, 대상 범위, 일정은 확정 사항과 후속 검토 사항을 구분해 설명합니다.",
-        "- 후속 절차, 관계기관 협의, 현장 이행관리 계획은 가능한 범위에서 구체 일정과 함께 제시합니다.",
+def build_press_release_summary_section(config: dict) -> str:
+    summary_sentences = [
+        str(sentence).strip()
+        for sentence in config.get("pressRelease", {}).get("summarySentences", [])
+        if str(sentence).strip()
     ]
-    if frame_counts.get("비판 / 우려", 0) > 0:
-        lines.append("- 실효성 및 속도 우려에는 단계별 추진계획과 관리지표를 중심으로 대응 포인트를 준비합니다.")
-    if frame_counts.get("정치 / 기관 이슈", 0) > 0:
-        lines.append("- 지자체 및 관계기관 협의 상황은 단일 메시지로 정리해 기관 간 해석 차이를 줄입니다.")
-    if theme_groups:
-        lines.append(f"- 반복 노출되는 주제인 {', '.join(group['label'] for group in theme_groups[:2])} 관련 예상 질의를 사전 정리합니다.")
-    return "\n".join(lines[:4])
+    if summary_sentences:
+        return "\n".join(summary_sentences[:2])
+
+    topic_title = str(config.get("pressRelease", {}).get("title") or config.get("topic", {}).get("name", "")).strip()
+    if topic_title:
+        return topic_title
+    return "보도자료 요약을 생성하지 못했습니다."
+
+
+def build_media_status_section(reference_records: list[dict], processed_candidates: list[dict], analysis_now) -> str:
+    analysis_label = format_korean_briefing_time(analysis_now)
+    if not reference_records:
+        return f"{analysis_label} 현재, 관련 언론보도는 확인되지 않았습니다."
+
+    source_summary = ", ".join(get_top_source_labels(reference_records, limit=3))
+    lead_record = get_media_status_lead_record(processed_candidates)
+    lines = [f"{analysis_label} 현재, 관련 보도: {source_summary} 등 {len(reference_records)}건*"]
+    if lead_record:
+        lines.append(
+            f"   * [{get_record_source_label(lead_record)}] "
+            f"{limit_text(get_record_display_title(lead_record), 90)} 등"
+        )
+    return "\n".join(lines)
 
 
 def build_theme_groups_for_briefing(records: list[dict], config: dict) -> list[dict]:
@@ -195,15 +141,7 @@ def build_theme_groups_for_briefing(records: list[dict], config: dict) -> list[d
     return result[: int(config.get("collection", {}).get("maxThemes", 3))]
 
 
-def count_frames(records: list[dict]) -> dict:
-    counts = {}
-    for record in records:
-        frame = record.get("frame_category") or "기타"
-        counts[frame] = counts.get(frame, 0) + 1
-    return counts
-
-
-def build_briefing_overview_counts(raw_records: list[dict], config: dict, analysis_now=None) -> dict:
+def build_reference_candidates(raw_records: list[dict], config: dict, analysis_now=None) -> list[dict]:
     if analysis_now is None:
         analysis_now = get_analysis_now(config)
     lookback_start = get_lookback_start(config, analysis_now)
@@ -212,24 +150,35 @@ def build_briefing_overview_counts(raw_records: list[dict], config: dict, analys
     for record in raw_records:
         if not is_representative_record(record):
             continue
+        if not is_output_eligible_record(record):
+            continue
         if not is_within_lookback(record, lookback_start, analysis_now, config["timezone"]):
             continue
-        if float(record.get("policy_score", 0) or 0) <= 0:
+        if not is_reference_relevant_record(record, config):
             continue
         relevant_records.append(record)
 
+    relevant_records.sort(
+        key=lambda record: (
+            get_record_sort_timestamp(record, config),
+            float(record.get("importance_score", 0) or 0),
+        ),
+        reverse=True,
+    )
+    return relevant_records
+
+
+def build_briefing_overview_counts(
+    raw_records: list[dict],
+    config: dict,
+    analysis_now=None,
+    reference_records: list[dict] | None = None,
+) -> dict:
+    relevant_records = list(reference_records or build_reference_candidates(raw_records, config, analysis_now))
     return {
         "article_count": len(relevant_records),
         "source_count": get_unique_source_count(relevant_records),
     }
-
-
-def get_dominant_frames(frame_counts: dict) -> list[str]:
-    return sorted(frame_counts, key=lambda frame: frame_counts[frame], reverse=True)[:2]
-
-
-def get_unique_source_count(records: list[dict]) -> int:
-    return len({get_record_source_label(record) for record in records})
 
 
 def build_supporting_articles(records: list[dict]) -> str:
@@ -239,8 +188,17 @@ def build_supporting_articles(records: list[dict]) -> str:
     )
 
 
-def serialize_frame_counts(frame_counts: dict) -> str:
-    return ", ".join(f"{frame}:{count}" for frame, count in frame_counts.items())
+def build_briefing_notes(overview_counts: dict | None, theme_groups: list[dict]) -> str:
+    counts = overview_counts or {}
+    return (
+        f"article_count={counts.get('article_count', 0)}, "
+        f"source_count={counts.get('source_count', 0)}, "
+        f"theme_count={len(theme_groups)}"
+    )
+
+
+def get_unique_source_count(records: list[dict]) -> int:
+    return len({get_record_source_label(record) for record in records})
 
 
 def get_record_source_label(record: dict) -> str:
@@ -249,3 +207,29 @@ def get_record_source_label(record: dict) -> str:
 
 def get_record_display_title(record: dict) -> str:
     return clean_display_title(record.get("title", ""), record.get("source_name", ""), record.get("summary", ""))
+
+
+def format_korean_briefing_time(value) -> str:
+    return f"{value.year}년 {value.month}월 {value.day}일 {value.hour:02d}:{value.minute:02d}"
+
+
+def get_record_sort_timestamp(record: dict, config: dict) -> float:
+    from .config import get_record_time
+
+    timestamp = get_record_time(record, config["timezone"])
+    return timestamp.timestamp() if timestamp else 0
+
+
+def get_top_source_labels(records: list[dict], limit: int = 3) -> list[str]:
+    counts: dict[str, int] = {}
+    for record in records:
+        source_label = get_record_source_label(record)
+        counts[source_label] = counts.get(source_label, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [label for label, _count in ordered[:limit]]
+
+
+def get_media_status_lead_record(processed_candidates: list[dict]) -> dict | None:
+    if processed_candidates:
+        return processed_candidates[0]
+    return None

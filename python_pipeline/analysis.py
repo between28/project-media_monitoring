@@ -105,45 +105,150 @@ def is_high_relevance_record(record: dict, config: dict) -> bool:
     return hit_stats["totalHits"] >= int(config.get("scoring", {}).get("minimumKeywordHits", 2))
 
 
-def run_analysis(connection, config: dict, fetch_bodies: bool = True) -> list[dict]:
+def is_reference_relevant_record(record: dict, config: dict) -> bool:
+    if float(record.get("policy_score", 0) or 0) <= 0:
+        return False
+    if is_high_relevance_record(record, config):
+        return True
+
+    anchor_keywords = get_reference_anchor_keywords(config)
+    if not anchor_keywords:
+        return False
+
+    matched_keywords = {
+        normalize_text_lower(keyword)
+        for keyword in split_keywords(record.get("keyword", ""))
+        if collapse_whitespace(keyword)
+    }
+    return bool(matched_keywords & anchor_keywords)
+
+
+def is_output_eligible_record(record: dict) -> bool:
+    display_source = infer_display_source_name(
+        record.get("source_name", ""),
+        record.get("title", ""),
+        record.get("summary", ""),
+    )
+    return not is_portal_source_name(display_source)
+
+
+def get_reference_anchor_keywords(config: dict) -> set[str]:
+    anchors: set[str] = set()
+    for keyword in config.get("collection", {}).get("rawCoreKeywords", []):
+        normalized = normalize_text_lower(keyword)
+        if normalized:
+            anchors.add(normalized)
+    for rule in get_keyword_rules_by_buckets(config, ["phrase"]):
+        normalized = normalize_text_lower(rule.get("keyword", ""))
+        if normalized:
+            anchors.add(normalized)
+    return anchors
+
+
+def run_analysis(connection, config: dict, fetch_bodies: bool = True, progress_callback=None, cancel_callback=None) -> list[dict]:
     raw_records = fetch_raw_articles(connection)
     if not raw_records:
         replace_processed_articles(connection, format_datetime(get_analysis_now(config), config["timezone"]), [])
         return []
 
-    raw_records, processed_records = build_processed_snapshot(raw_records, config, fetch_bodies=fetch_bodies)
+    raw_records, processed_records = build_processed_snapshot(
+        raw_records,
+        config,
+        fetch_bodies=fetch_bodies,
+        progress_callback=progress_callback,
+        cancel_callback=cancel_callback,
+    )
 
     update_raw_articles(connection, raw_records)
     replace_processed_articles(connection, format_datetime(get_analysis_now(config), config["timezone"]), processed_records)
     return processed_records
 
 
-def build_processed_snapshot(raw_records: list[dict], config: dict, fetch_bodies: bool = True) -> tuple[list[dict], list[dict]]:
+def build_processed_snapshot(
+    raw_records: list[dict],
+    config: dict,
+    fetch_bodies: bool = True,
+    progress_callback=None,
+    cancel_callback=None,
+) -> tuple[list[dict], list[dict]]:
     snapshot_records = deepcopy(raw_records)
+    total_stages = 6 if fetch_bodies else 4
+    completed_stages = 0
+
+    if cancel_callback:
+        cancel_callback()
+    if progress_callback:
+        progress_callback("stage", completed_stages, total_stages, "중복 제거 중")
     deduplicate_news(snapshot_records, config)
+    completed_stages += 1
+
+    if cancel_callback:
+        cancel_callback()
+    if progress_callback:
+        progress_callback("stage", completed_stages, total_stages, "관련도 점수 계산 중")
     score_policy_relevance(snapshot_records, config)
+    completed_stages += 1
     if fetch_bodies:
-        fetch_article_bodies(snapshot_records, config)
+        if cancel_callback:
+            cancel_callback()
+        if progress_callback:
+            progress_callback("stage", completed_stages, total_stages, "본문 수집 중")
+        fetch_article_bodies(
+            snapshot_records,
+            config,
+            progress_callback=lambda current, total, source_name: progress_callback(
+                "body_fetch",
+                current,
+                total,
+                source_name,
+            )
+            if progress_callback
+            else None,
+            cancel_callback=cancel_callback,
+        )
+        completed_stages += 1
+
+        if cancel_callback:
+            cancel_callback()
+        if progress_callback:
+            progress_callback("stage", completed_stages, total_stages, "본문 반영 점수 재계산 중")
         score_policy_relevance(snapshot_records, config)
+        completed_stages += 1
+    if cancel_callback:
+        cancel_callback()
+    if progress_callback:
+        progress_callback("stage", completed_stages, total_stages, "프레임 분류 중")
     classify_frames(snapshot_records, config)
+    completed_stages += 1
+    if cancel_callback:
+        cancel_callback()
+    if progress_callback:
+        progress_callback("stage", completed_stages, total_stages, "중요도 랭킹 중")
     processed_records = rank_articles(snapshot_records, config)
+    completed_stages += 1
+    if cancel_callback:
+        cancel_callback()
+    if progress_callback:
+        progress_callback("stage", completed_stages, total_stages, "분석 완료")
     return snapshot_records, processed_records
 
 
 def deduplicate_news(raw_records: list[dict], config: dict) -> None:
     articles = []
     for record in raw_records:
+        display_source = infer_display_source_name(
+            record.get("source_name", ""),
+            record.get("title", ""),
+            record.get("summary", ""),
+        )
         articles.append(
             {
                 "record": record,
                 "clean_link": normalize_link(record.get("link", "")),
                 "exact_title": normalize_text_lower(record.get("title", "")),
                 "normalized_title": normalize_title(record.get("title", "")),
-                "display_source": infer_display_source_name(
-                    record.get("source_name", ""),
-                    record.get("title", ""),
-                    record.get("summary", ""),
-                ),
+                "display_source": display_source,
+                "source_key": normalize_text_lower(display_source or record.get("source_name", "")),
                 "representative_priority": get_representative_priority(record, config),
                 "time_value": get_record_time(record, config["timezone"]),
             }
@@ -158,8 +263,8 @@ def deduplicate_news(raw_records: list[dict], config: dict) -> None:
     )
 
     seen_links: dict[str, int] = {}
-    seen_titles: dict[str, int] = {}
-    seen_normalized_titles: dict[str, int] = {}
+    seen_titles: dict[tuple[str, str], int] = {}
+    seen_normalized_titles: dict[tuple[str, str], int] = {}
     representatives: list[dict] = []
     representative_stats: dict[int, dict] = {}
 
@@ -171,11 +276,22 @@ def deduplicate_news(raw_records: list[dict], config: dict) -> None:
 
         if article["clean_link"] and article["clean_link"] in seen_links:
             duplicate_info = {"rep_id": seen_links[article["clean_link"]], "reason": "duplicate_link"}
-        elif article["exact_title"] and article["exact_title"] in seen_titles:
-            duplicate_info = {"rep_id": seen_titles[article["exact_title"]], "reason": "duplicate_exact_title"}
-        elif article["normalized_title"] and article["normalized_title"] in seen_normalized_titles:
+        elif (
+            article["source_key"]
+            and article["exact_title"]
+            and (article["source_key"], article["exact_title"]) in seen_titles
+        ):
             duplicate_info = {
-                "rep_id": seen_normalized_titles[article["normalized_title"]],
+                "rep_id": seen_titles[(article["source_key"], article["exact_title"])],
+                "reason": "duplicate_exact_title",
+            }
+        elif (
+            article["source_key"]
+            and article["normalized_title"]
+            and (article["source_key"], article["normalized_title"]) in seen_normalized_titles
+        ):
+            duplicate_info = {
+                "rep_id": seen_normalized_titles[(article["source_key"], article["normalized_title"])],
                 "reason": "duplicate_normalized_title",
             }
         else:
@@ -199,10 +315,10 @@ def deduplicate_news(raw_records: list[dict], config: dict) -> None:
 
         if article["clean_link"]:
             seen_links[article["clean_link"]] = record["id"]
-        if article["exact_title"]:
-            seen_titles[article["exact_title"]] = record["id"]
-        if article["normalized_title"]:
-            seen_normalized_titles[article["normalized_title"]] = record["id"]
+        if article["source_key"] and article["exact_title"]:
+            seen_titles[(article["source_key"], article["exact_title"])] = record["id"]
+        if article["source_key"] and article["normalized_title"]:
+            seen_normalized_titles[(article["source_key"], article["normalized_title"])] = record["id"]
 
     for record in raw_records:
         stat = representative_stats.get(record["id"])
@@ -237,6 +353,8 @@ def find_fuzzy_duplicate(article: dict, representatives: list[dict], threshold: 
     if not article["normalized_title"]:
         return None
     for representative in representatives:
+        if article.get("source_key") != representative.get("source_key"):
+            continue
         similarity = title_similarity(article["normalized_title"], representative["normalized_title"])
         effective_threshold = threshold
         current_is_portal = is_portal_source_name(article.get("display_source", ""))
@@ -263,7 +381,7 @@ def score_policy_relevance(raw_records: list[dict], config: dict) -> None:
         )
 
 
-def fetch_article_bodies(raw_records: list[dict], config: dict) -> int:
+def fetch_article_bodies(raw_records: list[dict], config: dict, progress_callback=None, cancel_callback=None) -> int:
     analysis_now = get_analysis_now(config)
     lookback_start = get_lookback_start(config, analysis_now)
     candidates = [
@@ -286,7 +404,12 @@ def fetch_article_bodies(raw_records: list[dict], config: dict) -> int:
 
     updated_count = 0
     limit = int(config.get("collection", {}).get("maxBodyFetchCandidates", 12))
-    for candidate in candidates[:limit]:
+    total_candidates = min(limit, len(candidates))
+    if progress_callback:
+        progress_callback(0, total_candidates, "")
+    for index, candidate in enumerate(candidates[:limit], start=1):
+        if cancel_callback:
+            cancel_callback()
         record = candidate["record"]
         try:
             body_text = fetch_article_body_text(record, config)
@@ -298,7 +421,11 @@ def fetch_article_bodies(raw_records: list[dict], config: dict) -> int:
         except (ValueError, urllib.error.URLError, TimeoutError) as error:
             record["notes"] = upsert_tagged_note(record.get("notes", ""), "body_fetch_error", limit_text(str(error), 80))
             LOGGER.warning("Body fetch failed for %s: %s", record.get("source_name"), error)
+        if progress_callback:
+            progress_callback(index, total_candidates, record.get("source_name", ""))
 
+    if cancel_callback:
+        cancel_callback()
     LOGGER.info("Body fetch updated %s of %s candidate articles.", updated_count, min(limit, len(candidates)))
     return updated_count
 
@@ -463,6 +590,7 @@ def rank_articles(raw_records: list[dict], config: dict) -> list[dict]:
         deepcopy(record)
         for record in raw_records
         if is_representative_record(record)
+        and is_output_eligible_record(record)
         and is_high_relevance_record(record, config)
         and is_within_lookback(record, lookback_start, analysis_now, config["timezone"])
     ]

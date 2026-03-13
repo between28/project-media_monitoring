@@ -176,6 +176,13 @@ def seed_config_tables(connection: sqlite3.Connection, config: dict, reset: bool
     connection.commit()
 
 
+def clear_run_output_tables(connection: sqlite3.Connection) -> None:
+    connection.execute("DELETE FROM raw_articles")
+    connection.execute("DELETE FROM processed_articles")
+    connection.execute("DELETE FROM briefing_sections")
+    connection.commit()
+
+
 def read_config_sources(connection: sqlite3.Connection) -> list[dict]:
     return [
         dict(row)

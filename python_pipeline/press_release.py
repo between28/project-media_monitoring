@@ -87,12 +87,47 @@ DOMAIN_SINGLE_TERMS = {
     "부동산",
     "인프라",
     "광역교통",
+    "스마트도시",
+    "인공지능",
+    "조성사업",
+    "훈련",
+    "대응",
+    "대피",
+    "복구",
+    "탈선",
+    "안전",
+    "비상대응",
+}
+
+GENERIC_DERIVED_TOPIC_TERMS = {
+    "개통",
+    "착공",
+    "공사",
+    "서울",
+    "동북권",
+    "교통편의",
+    "교통편",
+    "교통편의",
+    "편의",
+    "향상",
+    "기대",
+    "계획",
+    "추진",
 }
 
 DOMAIN_PHRASE_MARKERS = (
     "경전철",
     "도시철도",
     "광역교통",
+    "스마트도시",
+    "인공지능",
+    "조성사업",
+    "도시문제",
+    "고속선",
+    "터널",
+    "탈선",
+    "비상대응",
+    "훈련",
     "주택공급",
     "교통편의",
     "교통 접근성",
@@ -107,6 +142,70 @@ DOMAIN_PHRASE_MARKERS = (
 )
 
 TITLE_PREFIX_PATTERN = re.compile(r"^[가-힣]{2,10}(?:\s*[가-힣]{1,6})?\s*(장관|위원장|차관|본부장|실장),?\s*")
+TITLE_DATE_PREFIX_PATTERN = re.compile(r"^\d{1,2}일\s+")
+KOREAN_PARTICLE_SUFFIXES = (
+    "에서는",
+    "으로는",
+    "에서",
+    "으로",
+    "에게",
+    "까지",
+    "부터",
+    "처럼",
+    "이다",
+    "한다",
+    "했다",
+    "되는",
+    "되는지",
+    "되면",
+    "중인",
+    "한",
+    "을",
+    "를",
+    "은",
+    "는",
+    "이",
+    "가",
+    "와",
+    "과",
+    "도",
+    "로",
+)
+GENERIC_KEYWORD_STOPWORDS = {
+    "안",
+    "상황",
+    "과정",
+    "전과정",
+    "점검",
+    "가정",
+    "가정해",
+    "실시",
+    "계획",
+    "예정",
+    "중점",
+    "직후",
+    "안내",
+    "이행",
+    "구간",
+    "차량",
+    "승객",
+    "내부",
+    "초기",
+    "긴급",
+    "실제",
+    "정부",
+    "국토교통부",
+    "대비",
+    "서울",
+    "동북권",
+    "교통편의",
+    "교통편",
+    "편의",
+    "향상",
+    "기대",
+    "지역",
+    "주민",
+}
 MANUAL_OVERRIDE_TEMPLATE = {
     "google_queries_add": [],
     "google_queries_disable": [],
@@ -169,6 +268,7 @@ def parse_hwpx_press_release(path: Path) -> dict[str, Any]:
     topic_keywords = derive_topic_keywords(phrases, title)
     queries = build_google_queries(title, phrases, topic_keywords)
     entities = extract_named_entities(lines)
+    briefing_summary = build_press_release_briefing_summary(lines, title)
 
     return {
         "title": title,
@@ -181,6 +281,7 @@ def parse_hwpx_press_release(path: Path) -> dict[str, Any]:
         "topic_keywords": topic_keywords[:8],
         "entities": entities,
         "google_queries": queries[:6],
+        "briefing_summary_sentences": briefing_summary,
         "body_text": "\n".join(lines),
     }
 
@@ -215,17 +316,19 @@ def normalize_press_release_lines(text: str) -> list[str]:
 
 def extract_press_release_title(lines: list[str], path: Path) -> str:
     candidates = []
-    for line in lines[:10]:
+    for index, line in enumerate(lines[:12]):
         if any(marker in line for marker in ("보도시점", "배포 :", "담당 부서", "책임자")):
             continue
         if line.startswith(("□", "ㅇ", "*")):
             continue
-        candidates.append(line)
+        cleaned = clean_title_line(line)
+        if not cleaned:
+            continue
+        score = score_title_candidate(cleaned, index)
+        candidates.append((score, index, cleaned))
 
     if candidates:
-        title = max(candidates, key=len)
-        title = re.sub(r"^(동정자료|보도자료)\s*", "", title).strip()
-        title = clean_phrase(TITLE_PREFIX_PATTERN.sub("", title))
+        _score, _index, title = max(candidates, key=lambda item: (item[0], -item[1], -len(item[2])))
         return collapse_whitespace(title)
 
     stem = path.stem
@@ -265,6 +368,69 @@ def extract_release_info(lines: list[str], path: Path) -> dict[str, str]:
     }
 
 
+def build_press_release_briefing_summary(lines: list[str], title: str) -> list[str]:
+    lead_line = next((line for line in lines if line.startswith("□ ")), "")
+    if lead_line:
+        return [ensure_sentence(clean_press_release_line(lead_line))]
+
+    fallback_sentences = []
+    for line in lines:
+        cleaned = clean_press_release_line(line)
+        if not cleaned or len(cleaned) < 15:
+            continue
+        fallback_sentences.append(ensure_sentence(cleaned))
+        if len(fallback_sentences) >= 2:
+            break
+    return fallback_sentences
+
+
+def clean_title_line(line: str) -> str:
+    cleaned = collapse_whitespace(str(line or ""))
+    cleaned = re.sub(r"^(동정자료|보도자료)\s*", "", cleaned).strip()
+    cleaned = re.sub(r"^[\-–—]\s*", "", cleaned)
+    cleaned = TITLE_DATE_PREFIX_PATTERN.sub("", cleaned)
+    cleaned = clean_phrase(TITLE_PREFIX_PATTERN.sub("", cleaned))
+    return collapse_whitespace(cleaned)
+
+
+def score_title_candidate(line: str, index: int) -> int:
+    score = 0
+    if index <= 2:
+        score += 8
+    elif index <= 4:
+        score += 5
+    else:
+        score += 2
+    if len(line) <= 40:
+        score += 4
+    elif len(line) <= 60:
+        score += 2
+    else:
+        score -= 2
+    if has_domain_signal(line):
+        score += 4
+    if looks_like_body_sentence(line):
+        score -= 10
+    if re.search(r"[~·]", line):
+        score += 1
+    return score
+
+
+def clean_press_release_line(line: str) -> str:
+    cleaned = collapse_whitespace(str(line or ""))
+    cleaned = re.sub(r"^[□ㅇ*\-]+\s*", "", cleaned)
+    cleaned = cleaned.replace("“", "").replace("”", "").replace("‘", "").replace("’", "")
+    cleaned = cleaned.replace(" ,", ",")
+    return collapse_whitespace(cleaned).strip()
+
+
+def ensure_sentence(text: str) -> str:
+    cleaned = collapse_whitespace(text).rstrip(". ")
+    if not cleaned:
+        return ""
+    return cleaned + "."
+
+
 def derive_candidate_phrases(lines: list[str], title: str) -> list[str]:
     scores: Counter[str] = Counter()
 
@@ -278,21 +444,37 @@ def derive_candidate_phrases(lines: list[str], title: str) -> list[str]:
     if is_valid_phrase(title_core) and has_domain_signal(title_core):
         scores[title_core] += 9
 
-    title_fragments = re.split(r"[,·/()]| 및 ", title_core)
+    title_fragments = re.split(r"[,/()]| 및 |…+", title_core)
     for fragment in title_fragments:
         cleaned = clean_phrase(fragment)
         if is_valid_phrase(cleaned) and has_domain_signal(cleaned):
             scores[cleaned] += 5
 
-    for line in lines[:20]:
-        if len(line) > 100:
-            continue
-        for phrase in extract_phrases_from_line(line):
-            scores[phrase] += 2
+    subtitle_line = next(
+        (
+            clean_title_line(line)
+            for line in lines[:10]
+            if line.startswith(("-", "–", "—")) and clean_title_line(line)
+        ),
+        "",
+    )
+    if subtitle_line and is_valid_phrase(subtitle_line) and has_domain_signal(subtitle_line):
+        scores[subtitle_line] += 7
 
-    for line in lines:
+    headline_context_lines = []
+    for line in lines[:12]:
+        if line.startswith(("□", "ㅇ", "*")):
+            continue
+        cleaned = clean_title_line(line)
+        if not cleaned:
+            continue
+        if looks_like_body_sentence(cleaned):
+            continue
+        headline_context_lines.append(cleaned)
+
+    for line in headline_context_lines:
         for phrase in extract_phrases_from_line(line):
-            scores[phrase] += 1
+            scores[phrase] += 3
 
     ordered = []
     seen = set()
@@ -306,7 +488,9 @@ def derive_candidate_phrases(lines: list[str], title: str) -> list[str]:
 
 def extract_phrases_from_line(line: str) -> list[str]:
     phrases = []
-    for match in re.findall(r"[가-힣A-Za-z0-9·\- ]{3,40}", line):
+    if looks_like_body_sentence(line):
+        return phrases
+    for match in re.findall(r"[가-힣A-Za-z0-9·~\- ]{3,40}", line):
         cleaned = clean_phrase(match)
         if is_valid_phrase(cleaned) and has_domain_signal(cleaned):
             phrases.append(cleaned)
@@ -345,6 +529,10 @@ def is_valid_phrase(phrase: str) -> bool:
         return False
     if any(marker in phrase for marker in PHRASE_NOISE_MARKERS):
         return False
+    if contains_benefit_language_without_anchor(phrase):
+        return False
+    if looks_like_body_sentence(phrase):
+        return False
     return True
 
 
@@ -360,24 +548,32 @@ def derive_topic_keywords(phrases: list[str], title: str) -> list[str]:
     for phrase in phrases[:12]:
         tokens = re.findall(r"[가-힣A-Za-z0-9]{2,12}", phrase)
         for token in tokens:
-            if token in GENERIC_STOPWORDS:
+            cleaned_token = normalize_keyword_token(token)
+            if not cleaned_token:
                 continue
-            if re.search(r"^\d+년$", token):
+            if re.search(r"^\d+년$", cleaned_token):
                 continue
-            if token in DOMAIN_SINGLE_TERMS:
-                scores[token] += 4
-            elif len(token) >= 3:
-                scores[token] += 1
+            if cleaned_token in DOMAIN_SINGLE_TERMS:
+                scores[cleaned_token] += 4
+            elif len(cleaned_token) >= 2:
+                scores[cleaned_token] += 1
 
     for token in re.findall(r"[가-힣A-Za-z0-9]{2,12}", title):
-        if token in GENERIC_STOPWORDS:
+        cleaned_token = normalize_keyword_token(token)
+        if not cleaned_token:
             continue
-        if re.search(r"^\d+년$", token):
+        if re.search(r"^\d+년$", cleaned_token):
             continue
-        if token in DOMAIN_SINGLE_TERMS:
-            scores[token] += 6
-        elif len(token) >= 3:
-            scores[token] += 2
+        if cleaned_token in DOMAIN_SINGLE_TERMS:
+            scores[cleaned_token] += 6
+        elif len(cleaned_token) >= 2:
+            scores[cleaned_token] += 2
+
+    for entity in extract_named_entities_from_text(title + "\n" + "\n".join(phrases[:6]))[:8]:
+        cleaned_entity = normalize_keyword_token(entity)
+        if not cleaned_entity:
+            continue
+        scores[cleaned_entity] += 5
 
     ordered = []
     seen = set()
@@ -396,11 +592,20 @@ def build_google_queries(title: str, phrases: list[str], topic_keywords: list[st
         (keyword for keyword in topic_keywords if keyword not in DOMAIN_SINGLE_TERMS and keyword not in GENERIC_STOPWORDS),
         "",
     )
+    acronym_keyword = next((keyword for keyword in topic_keywords if re.fullmatch(r"[A-Z]{2,6}", keyword)), "")
+    event_keyword = next(
+        (keyword for keyword in topic_keywords if keyword in {"탈선", "비상대응", "훈련", "공급", "개통", "착공"}),
+        "",
+    )
     entities = extract_named_entities_from_text(title + "\n" + "\n".join(phrases[:6]))
 
     core_title = clean_phrase(title)
     if core_title and has_domain_signal(core_title):
         queries.append(core_title)
+        if "," in core_title:
+            title_head, title_tail = (collapse_whitespace(part) for part in core_title.split(",", 1))
+            if title_head and contains_benefit_language_without_anchor(title_tail):
+                queries.append(title_head)
 
     for phrase in phrases[:6]:
         if phrase in queries or " " not in phrase:
@@ -415,12 +620,20 @@ def build_google_queries(title: str, phrases: list[str], topic_keywords: list[st
             queries.append(phrase)
 
     if anchor:
+        if acronym_keyword and acronym_keyword != anchor:
+            query = f"{acronym_keyword} {anchor}"
+            if query not in queries:
+                queries.append(query)
+        if event_keyword and event_keyword != anchor:
+            query = f"{anchor} {event_keyword}"
+            if query not in queries:
+                queries.append(query)
         if "경전철" in topic_keywords and f"{anchor} 경전철" not in queries:
             queries.append(f"{anchor} 경전철")
         if "개통" in topic_keywords and f"{anchor} 개통" not in queries:
             queries.append(f"{anchor} 개통")
         for entity in entities[:3]:
-            if entity == anchor:
+            if entity == anchor or is_weak_entity_for_query(entity):
                 continue
             query = f"{anchor} {entity}"
             if query not in queries:
@@ -447,6 +660,8 @@ def extract_named_entities_from_text(text: str) -> list[str]:
     candidates = []
     patterns = [
         r"[가-힣A-Za-z0-9]{2,12}역",
+        r"[가-힣A-Za-z0-9]{2,20}터널",
+        r"[가-힣A-Za-z0-9]{2,20}고속선",
         r"[가-힣]{2,10}(?:구|동|권)",
         r"[가-힣A-Za-z0-9]{2,12}선",
     ]
@@ -465,7 +680,69 @@ def extract_named_entities_from_text(text: str) -> list[str]:
     return ordered
 
 
+def contains_benefit_language_without_anchor(text: str) -> bool:
+    cleaned = collapse_whitespace(text)
+    if not cleaned:
+        return False
+    if not any(marker in cleaned for marker in ("교통편의", "접근성", "향상", "기대")):
+        return False
+    if any(
+        marker in cleaned
+        for marker in ("경전철", "도시철도", "철도", "고속선", "KTX", "SRT", "GTX", "주택공급", "택지")
+    ):
+        return False
+    if re.search(r"[가-힣A-Za-z0-9]{2,12}(역|선|터널|지구)", cleaned):
+        return False
+    return True
+
+
+def is_weak_entity_for_query(entity: str) -> bool:
+    cleaned = collapse_whitespace(entity)
+    if not cleaned:
+        return True
+    if cleaned in GENERIC_DERIVED_TOPIC_TERMS or cleaned in GENERIC_KEYWORD_STOPWORDS:
+        return True
+    if cleaned.endswith("권"):
+        return True
+    return False
+
+
+def looks_like_body_sentence(text: str) -> bool:
+    cleaned = collapse_whitespace(text)
+    if not cleaned:
+        return False
+    if len(cleaned) >= 50 and any(
+        marker in cleaned
+        for marker in ("한다", "했다", "계획이다", "예정이다", "실시한다", "점검할", "중점", "필요하다")
+    ):
+        return True
+    if cleaned.count(" ") >= 8:
+        return True
+    return False
+
+
+def normalize_keyword_token(token: str) -> str:
+    cleaned = collapse_whitespace(str(token or ""))
+    if not cleaned:
+        return ""
+    if cleaned in GENERIC_STOPWORDS or cleaned in GENERIC_KEYWORD_STOPWORDS:
+        return ""
+    if re.fullmatch(r"\d+", cleaned):
+        return ""
+    for suffix in KOREAN_PARTICLE_SUFFIXES:
+        if cleaned.endswith(suffix) and len(cleaned) - len(suffix) >= 2:
+            cleaned = cleaned[: -len(suffix)]
+            break
+    cleaned = collapse_whitespace(cleaned)
+    if not cleaned or cleaned in GENERIC_STOPWORDS or cleaned in GENERIC_KEYWORD_STOPWORDS:
+        return ""
+    if re.fullmatch(r"\d+", cleaned):
+        return ""
+    return cleaned
+
+
 def build_config_from_press_release(profile: dict[str, Any], manual_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    overrides = normalize_manual_overrides(manual_overrides)
     effective_profile = apply_manual_overrides_to_profile(profile, manual_overrides)
     base_config = clone_default_config()
     non_google_sources = [source for source in base_config["sources"] if source["source_type"] != "google_news"]
@@ -475,8 +752,17 @@ def build_config_from_press_release(profile: dict[str, Any], manual_overrides: d
         if rule["bucket"] not in {"topic", "phrase"}
     ]
 
+    manual_core_keywords = apply_list_override(
+        [],
+        overrides["topic_keywords_add"],
+        overrides["topic_keywords_disable"],
+        overrides["topic_keywords_replace"],
+    )
+    core_anchor_keywords = filter_core_anchor_keywords(manual_core_keywords) if manual_core_keywords else []
+    google_queries = filter_anchor_queries(effective_profile.get("google_queries", []), core_anchor_keywords)
+
     derived_sources = []
-    for query in effective_profile.get("google_queries", []):
+    for query in google_queries:
         derived_sources.append(
             {
                 "enabled": True,
@@ -490,30 +776,30 @@ def build_config_from_press_release(profile: dict[str, Any], manual_overrides: d
         )
 
     derived_keyword_rules = []
-    for keyword in effective_profile.get("topic_keywords", [])[:8]:
+    for keyword in core_anchor_keywords[:8]:
         derived_keyword_rules.append(
             {
                 "enabled": True,
                 "bucket": "topic",
-                "keyword": keyword,
+                "keyword": collapse_whitespace(keyword),
                 "weight": 3 if len(keyword) >= 3 else 2,
-                "notes": "derived from press release",
+                "notes": "derived core keyword from press release",
             }
         )
-    for phrase in effective_profile.get("phrases", [])[:8]:
+    for phrase in google_queries[:8]:
         derived_keyword_rules.append(
             {
                 "enabled": True,
                 "bucket": "phrase",
-                "keyword": phrase,
+                "keyword": collapse_whitespace(phrase),
                 "weight": 5 if " " in phrase or len(phrase) >= 8 else 4,
-                "notes": "derived from press release",
+                "notes": "derived search query from press release",
             }
         )
 
     derived_core_keywords = []
     seen_core_keywords = set()
-    for keyword in effective_profile.get("topic_keywords", []):
+    for keyword in core_anchor_keywords:
         normalized = normalize_text_lower(keyword)
         if not normalized or normalized in seen_core_keywords:
             continue
@@ -535,20 +821,67 @@ def build_config_from_press_release(profile: dict[str, Any], manual_overrides: d
         "referenceTime": "",
         "windowStartTime": release_datetime,
     }
-    base_config.setdefault("collection", {})["rawCoreKeywords"] = derived_core_keywords or base_config.get("collection", {}).get("rawCoreKeywords", [])
+    base_config["pressRelease"] = {
+        "summarySentences": list(effective_profile.get("briefing_summary_sentences", []))[:2],
+        "title": effective_profile.get("title", ""),
+        "releaseDate": effective_profile.get("release_date", ""),
+        "releaseDateTime": effective_profile.get("release_datetime", ""),
+    }
+    base_config.setdefault("collection", {})["rawCoreKeywords"] = derived_core_keywords
     base_config.setdefault("collection", {})["rawMinimumKeywordHits"] = 1
+    base_config.setdefault("collection", {})["rawMinimumQueryHits"] = 1
+    base_config.setdefault("collection", {})["requireQueryMatch"] = True
     base_config.setdefault("collection", {})["maxItemsPerFeed"] = max(
         int(base_config.get("collection", {}).get("maxItemsPerFeed", 10)),
-        30,
+        100,
     )
     base_config.setdefault("collection", {})["maxItemsPerGoogleNewsFeed"] = max(
         int(base_config.get("collection", {}).get("maxItemsPerGoogleNewsFeed", 8)),
-        20,
+        50,
     )
     base_config["genericThemeKeywords"] = derived_core_keywords[:]
     base_config["sources"] = derived_sources + non_google_sources
     base_config["keywordRules"] = generic_keyword_rules + dedupe_keyword_rules(derived_keyword_rules)
     return base_config
+
+
+def filter_scoring_topic_keywords(keywords: list[str]) -> list[str]:
+    filtered = []
+    for keyword in keywords:
+        cleaned = collapse_whitespace(keyword)
+        normalized = normalize_text_lower(cleaned)
+        if not cleaned or normalized in GENERIC_DERIVED_TOPIC_TERMS:
+            continue
+        filtered.append(cleaned)
+    return filtered or [collapse_whitespace(keyword) for keyword in keywords if collapse_whitespace(keyword)]
+
+
+def filter_core_anchor_keywords(keywords: list[str]) -> list[str]:
+    filtered = []
+    for keyword in keywords:
+        cleaned = collapse_whitespace(keyword)
+        normalized = normalize_text_lower(cleaned)
+        if not cleaned or normalized in DOMAIN_SINGLE_TERMS:
+            continue
+        filtered.append(cleaned)
+    return filtered or [collapse_whitespace(keyword) for keyword in keywords if collapse_whitespace(keyword)]
+
+
+def filter_anchor_phrases(phrases: list[str], anchors: list[str]) -> list[str]:
+    return [phrase for phrase in phrases if phrase_contains_anchor(phrase, anchors)] or [
+        collapse_whitespace(phrase) for phrase in phrases if collapse_whitespace(phrase)
+    ]
+
+
+def filter_anchor_queries(queries: list[str], anchors: list[str]) -> list[str]:
+    return [query for query in queries if phrase_contains_anchor(query, anchors)] or [
+        collapse_whitespace(query) for query in queries if collapse_whitespace(query)
+    ]
+
+
+def phrase_contains_anchor(text: str, anchors: list[str]) -> bool:
+    cleaned = collapse_whitespace(text)
+    return bool(cleaned and any(anchor and anchor in cleaned for anchor in anchors))
 
 
 def limit_query_label(query: str) -> str:
@@ -588,6 +921,7 @@ def save_press_release_outputs(profile: dict[str, Any], config: dict[str, Any], 
 
 
 def build_press_release_markdown(profile: dict[str, Any]) -> str:
+    auto_config = build_config_from_press_release(profile)
     lines = [
         "# 보도자료 자동 추출 결과",
         "",
@@ -595,18 +929,13 @@ def build_press_release_markdown(profile: dict[str, Any]) -> str:
         f"- 배포일: {profile.get('release_date', '')}",
         f"- 담당부서: {profile.get('department', '')}",
         "",
-        "## 추천 구문 키워드",
+        "## 추천 검색 쿼리",
     ]
-    for phrase in profile.get("phrases", [])[:8]:
-        lines.append(f"- {phrase}")
-
-    lines.extend(["", "## 추천 일반 키워드"])
-    for keyword in profile.get("topic_keywords", [])[:8]:
-        lines.append(f"- {keyword}")
-
-    lines.extend(["", "## 추천 Google News 질의"])
     for query in profile.get("google_queries", [])[:6]:
         lines.append(f"- {query}")
+    lines.extend(["", "## 추천 핵심 키워드"])
+    for keyword in auto_config.get("collection", {}).get("rawCoreKeywords", [])[:6]:
+        lines.append(f"- {keyword}")
     return "\n".join(lines) + "\n"
 
 
@@ -850,7 +1179,7 @@ def split_override_lines(value: str) -> list[str]:
 
 def build_manual_override_file_text(overrides: dict[str, Any]) -> str:
     lines = [
-        "# 세션별 수동 쿼리 보완 파일입니다.",
+        "# 세션별 수동 검색 규칙 보완 파일입니다.",
         "# 값은 한 줄에 하나씩 입력합니다. 각 항목은 아래처럼 공백 4칸 들여써서 적습니다.",
         "# 쉼표(,)로 여러 값을 한 줄에 적지 않습니다.",
         "# 띄어쓰기는 검색에 쓰고 싶은 문구 그대로 유지합니다.",
@@ -858,12 +1187,12 @@ def build_manual_override_file_text(overrides: dict[str, Any]) -> str:
         "# 예시:",
         "# add =",
         "#     동북선 경전철 개통",
-        "#     서울 동북권 경전철",
+        "#     동북선 경전철",
         "# disable =",
-        "#     동북선 왕십리역",
+        "#     동북선 개통",
         "# replace =",
-        "#     동북선 경전철 개통",
-        "#     서울 동북권 교통편의 향상",
+        "#     동북선 경전철 27년 개통",
+        "#     동북선 경전철",
         "#",
         "# add: 자동 추출 결과에 추가",
         "# disable: 자동 추출 결과 중 제외",
@@ -873,8 +1202,8 @@ def build_manual_override_file_text(overrides: dict[str, Any]) -> str:
     lines.extend(
         build_manual_override_section(
             "google_queries",
-            "Google News 질의",
-            "언론 검색에 직접 사용할 질의입니다.",
+            "검색 쿼리",
+            "Google News 검색과 RSS/sitemap 기사 필터에 함께 사용하는 쿼리입니다.",
             overrides["google_queries_add"],
             overrides["google_queries_disable"],
             overrides["google_queries_replace"],
@@ -884,22 +1213,11 @@ def build_manual_override_file_text(overrides: dict[str, Any]) -> str:
     lines.extend(
         build_manual_override_section(
             "topic_keywords",
-            "일반 키워드",
-            "정책 관련도 점수 계산에 쓰는 일반 키워드입니다.",
+            "핵심 키워드",
+            "최종 수집 여부를 결정하는 핵심 식별 키워드입니다.",
             overrides["topic_keywords_add"],
             overrides["topic_keywords_disable"],
             overrides["topic_keywords_replace"],
-        )
-    )
-    lines.append("")
-    lines.extend(
-        build_manual_override_section(
-            "phrases",
-            "구문 키워드",
-            "정책명·사업명·고유 표현처럼 강한 신호로 보는 구문입니다.",
-            overrides["phrases_add"],
-            overrides["phrases_disable"],
-            overrides["phrases_replace"],
         )
     )
     lines.append("")

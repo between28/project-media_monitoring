@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from copy import deepcopy
+from datetime import datetime
 import logging
 import os
 import queue
@@ -37,7 +38,10 @@ from .utils import collapse_whitespace
 
 APP_TITLE = "MOLIT Media Monitor"
 MEDIA_SOURCE_CSV_NAME = "media_source_list.csv"
+QUERY_HISTORY_CSV_NAME = "query_history.csv"
 MEDIA_SOURCE_COLUMNS = ["순번", "언론사", "매체구분", "수집방식", "기본사용", "피드주소", "비고"]
+QUERY_HISTORY_COLUMNS = ["실행일시", "세션ID", "보도자료 파일명", "보도자료 제목", "쿼리순번", "검색쿼리"]
+
 CATEGORY_GROUP_LABELS = {
     "wire": "통신",
     "national_daily": "전국 종합일간지",
@@ -261,7 +265,7 @@ class MediaMonitorDesktopApp(tk.Tk):
 
         action_bar = ttk.Frame(container)
         action_bar.grid(row=5, column=0, sticky="ew", pady=(12, 10))
-        action_bar.columnconfigure(5, weight=1)
+        action_bar.columnconfigure(6, weight=1)
 
         self.run_button = ttk.Button(action_bar, text="기사 검색", command=self.start_run)
         self.run_button.grid(row=0, column=0, padx=(0, 8))
@@ -285,7 +289,9 @@ class MediaMonitorDesktopApp(tk.Tk):
             state="disabled",
         )
         self.open_session_button.grid(row=0, column=4, padx=(0, 8))
-        ttk.Label(action_bar, textvariable=self.status_var).grid(row=0, column=5, sticky="w")
+        self.open_guide_button = ttk.Button(action_bar, text="사용 설명서 열기", command=self.open_user_guide)
+        self.open_guide_button.grid(row=0, column=5, padx=(0, 8))
+        ttk.Label(action_bar, textvariable=self.status_var).grid(row=0, column=6, sticky="w")
         self.progress_bar = ttk.Progressbar(
             action_bar,
             orient="horizontal",
@@ -293,9 +299,9 @@ class MediaMonitorDesktopApp(tk.Tk):
             maximum=100,
             variable=self.progress_value,
         )
-        self.progress_bar.grid(row=1, column=0, columnspan=6, sticky="ew", pady=(8, 0))
+        self.progress_bar.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(8, 0))
         ttk.Label(action_bar, textvariable=self.progress_detail_var).grid(
-            row=2, column=0, columnspan=6, sticky="w", pady=(4, 0)
+            row=2, column=0, columnspan=7, sticky="w", pady=(4, 0)
         )
 
         lower = ttk.PanedWindow(container, orient="horizontal")
@@ -599,6 +605,8 @@ class MediaMonitorDesktopApp(tk.Tk):
             seed_config_tables(connection, config, reset=True)
             clear_run_output_tables(connection)
             save_press_session_metadata(profile, config, session_paths, overrides)
+            query_history_path = self.append_query_history(profile, session_paths, config)
+            logging.info("Saved query history to %s", query_history_path)
             push_progress(10, "세션 설정 저장 완료")
 
             check_cancel()
@@ -655,6 +663,14 @@ class MediaMonitorDesktopApp(tk.Tk):
             return
         safe_open_path(self.last_run_result["session_paths"]["session_dir"])
 
+    def open_user_guide(self) -> None:
+        guide_path = self.base_dir / "MediaMonitor_UserGuide.pdf"
+        if not guide_path.exists():
+            messagebox.showerror(APP_TITLE, f"사용 설명서 PDF를 찾지 못했습니다.\n\n{guide_path}")
+            self._log(f"Failed to open user guide PDF: {guide_path}")
+            return
+        safe_open_path(guide_path)
+
     def open_latest_csv(self) -> None:
         if not self.last_run_result:
             return
@@ -698,6 +714,53 @@ class MediaMonitorDesktopApp(tk.Tk):
                     ]
                 )
         return csv_path
+
+    def append_query_history(
+        self,
+        profile: dict[str, Any],
+        session_paths: dict[str, str],
+        config: dict[str, Any],
+    ) -> Path:
+        logs_dir = self.base_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = logs_dir / QUERY_HISTORY_CSV_NAME
+
+        press_release_filename = Path(profile.get("input_path") or "").name
+        press_release_title = collapse_whitespace(profile.get("title", ""))
+        session_id = session_paths.get("session_id", "")
+        run_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        queries = []
+        for source in config.get("sources", []):
+            if source.get("source_type") != "google_news":
+                continue
+            query = collapse_whitespace(source.get("keyword", ""))
+            if query:
+                queries.append(query)
+
+        rows = []
+        if not queries:
+            rows.append([run_timestamp, session_id, press_release_filename, press_release_title, 0, ""])
+        else:
+            for index, query in enumerate(queries, start=1):
+                rows.append([run_timestamp, session_id, press_release_filename, press_release_title, index, query])
+
+        target_path = csv_path
+        try:
+            self._append_csv_rows(target_path, QUERY_HISTORY_COLUMNS, rows)
+        except PermissionError:
+            timestamp_suffix = datetime.now().strftime("%Y%m%d_%H%M%S")
+            target_path = logs_dir / f"query_history_{timestamp_suffix}.csv"
+            self._append_csv_rows(target_path, QUERY_HISTORY_COLUMNS, rows)
+
+        return target_path
+
+    def _append_csv_rows(self, path: Path, headers: list[str], rows: list[list[Any]]) -> None:
+        should_write_header = not path.exists() or path.stat().st_size == 0
+        with path.open("a", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.writer(handle)
+            if should_write_header:
+                writer.writerow(headers)
+            writer.writerows(rows)
 
     def _handle_run_complete(self, result: dict[str, Any]) -> None:
         self.last_run_result = result
